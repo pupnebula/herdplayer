@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HerdPlayer - Manual Control</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <style>
+    /* Web-specific layout overrides */
+    body {
+      height: auto;
+      min-height: 100vh;
+      overflow: auto;
+    }
+
+    main {
+      max-width: 460px;
+      margin: 0 auto;
+      overflow: visible;
+    }
+
+    .manual-panel {
+      flex: none;
+    }
+
+    .manual-disabled-overlay {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <span class="logo">HerdPlayer</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Device Management -->
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">Devices</span>
+        <div id="connection-summary" class="connection-summary"></div>
+      </div>
+      <div class="api-key-row">
+        <input type="text" id="api-key" placeholder="Application ID" spellcheck="false">
+      </div>
+      <div class="devices-list" id="devices-list"></div>
+      <div class="sidebar-actions">
+        <button id="add-device-btn" class="btn btn-small">+ Add Device</button>
+        <button id="connect-btn" class="btn btn-primary btn-small">Connect All</button>
+      </div>
+    </div>
+
+    <!-- Manual Control -->
+    <div class="manual-panel" id="manual-panel">
+      <div class="panel-section">
+        <span class="panel-title">Manual Control</span>
+
+        <div class="manual-status" id="manual-status">
+          <span class="status-dot disconnected" id="hsp-status-dot"></span>
+          <span id="hsp-status-text">Waiting for devices...</span>
+        </div>
+
+        <div class="manual-control-group">
+          <div class="manual-label-row">
+            <span class="label">Velocity</span>
+            <span class="manual-value" id="velocity-value">0%</span>
+          </div>
+          <input type="range" id="velocity-slider" min="0" max="100" value="0" step="1" disabled>
+        </div>
+
+        <div class="manual-control-group">
+          <div class="manual-label-row">
+            <span class="label">Stroke Min</span>
+            <span class="manual-value" id="stroke-min-value">0%</span>
+          </div>
+          <input type="range" id="stroke-min-slider" min="0" max="100" value="0" step="1" disabled>
+        </div>
+
+        <div class="manual-control-group">
+          <div class="manual-label-row">
+            <span class="label">Stroke Max</span>
+            <span class="manual-value" id="stroke-max-value">100%</span>
+          </div>
+          <input type="range" id="stroke-max-slider" min="0" max="100" value="100" step="1" disabled>
+        </div>
+
+        <div class="manual-actions">
+          <button id="hsp-start-btn" class="btn btn-primary" disabled>Start</button>
+          <button id="hsp-stop-btn" class="btn" disabled>Stop</button>
+        </div>
+      </div>
+
+      <div class="panel-section preset-section">
+        <span class="panel-title">Presets</span>
+        <div class="preset-grid">
+          <span class="preset-header"></span>
+          <span class="preset-header">Slow</span>
+          <span class="preset-header">Med</span>
+          <span class="preset-header">High</span>
+          <span class="preset-header">Fast</span>
+
+          <span class="preset-row-label">Top</span>
+          <button class="preset-btn" data-position="top" data-speed="15" disabled>Slow</button>
+          <button class="preset-btn" data-position="top" data-speed="50" disabled>Med</button>
+          <button class="preset-btn" data-position="top" data-speed="70" disabled>High</button>
+          <button class="preset-btn" data-position="top" data-speed="90" disabled>Fast</button>
+
+          <span class="preset-row-label">Mid</span>
+          <button class="preset-btn" data-position="middle" data-speed="15" disabled>Slow</button>
+          <button class="preset-btn" data-position="middle" data-speed="50" disabled>Med</button>
+          <button class="preset-btn" data-position="middle" data-speed="70" disabled>High</button>
+          <button class="preset-btn" data-position="middle" data-speed="90" disabled>Fast</button>
+
+          <span class="preset-row-label">Bottom</span>
+          <button class="preset-btn" data-position="bottom" data-speed="15" disabled>Slow</button>
+          <button class="preset-btn" data-position="bottom" data-speed="50" disabled>Med</button>
+          <button class="preset-btn" data-position="bottom" data-speed="70" disabled>High</button>
+          <button class="preset-btn" data-position="bottom" data-speed="90" disabled>Fast</button>
+
+          <span class="preset-row-label">Full</span>
+          <button class="preset-btn" data-position="full" data-speed="15" disabled>Slow</button>
+          <button class="preset-btn" data-position="full" data-speed="50" disabled>Med</button>
+          <button class="preset-btn" data-position="full" data-speed="70" disabled>High</button>
+          <button class="preset-btn" data-position="full" data-speed="90" disabled>Fast</button>
+
+          <span class="preset-row-label">Natural</span>
+          <button class="preset-btn preset-natural" data-position="full" data-speed="0" data-mode="natural" disabled>Slow</button>
+          <button class="preset-btn preset-natural" data-position="full" data-speed="40" data-mode="natural" disabled>Med</button>
+          <button class="preset-btn preset-natural" data-position="full" data-speed="60" data-mode="natural" disabled>High</button>
+          <button class="preset-btn preset-natural" data-position="full" data-speed="80" data-mode="natural" disabled>Fast</button>
+
+          <span class="preset-row-label">Skye Special</span>
+          <button class="preset-btn preset-natural" data-speed="15" data-mode="skye" disabled>Slow</button>
+          <button class="preset-btn preset-natural" data-speed="45" data-mode="skye" disabled>Med</button>
+          <button class="preset-btn preset-natural" data-speed="65" data-mode="skye" disabled>High</button>
+          <button class="preset-btn preset-natural" data-speed="75" data-mode="skye" disabled>Fast</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div id="toast-container" class="toast-container"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

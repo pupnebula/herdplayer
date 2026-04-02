@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>HerdPlayer - Controls</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <span class="logo">HerdPlayer</span>
+    </div>
+    <div class="mode-switch">
+      <button id="mode-hssp" class="mode-btn active">Script</button>
+      <button id="mode-hamp" class="mode-btn">Manual</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="control-panel">
+      <div class="panel-section">
+        <span class="panel-title">Media</span>
+        <div class="file-info">
+          <span class="label">Video:</span>
+          <span id="video-name" class="file-name">None</span>
+          <button id="load-video-btn" class="btn btn-small">Choose</button>
+          <button id="load-folder-btn" class="btn btn-small">Folder</button>
+        </div>
+        <div class="file-info">
+          <input type="text" id="video-url-input" placeholder="or paste video URL" class="url-input">
+          <button id="load-url-btn" class="btn btn-small">Load URL</button>
+        </div>
+        <div class="file-info">
+          <span class="label">Script:</span>
+          <span id="script-name" class="file-name">None</span>
+          <button id="load-script-btn" class="btn btn-small">Choose</button>
+          <span id="script-upload-status"></span>
+        </div>
+        <div class="media-sync-row">
+          <div class="offset-control">
+            <span class="label">Offset:</span>
+            <button id="offset-minus" class="btn btn-tiny">-50</button>
+            <input type="number" id="offset-input" value="0" step="50" class="offset-input">
+            <button id="offset-plus" class="btn btn-tiny">+50</button>
+            <span class="label">ms</span>
+          </div>
+          <div id="sync-info" class="sync-info" style="display:none">
+            <span class="label">Sync:</span>
+            <span id="sync-offset-display">--</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section playlist-section" id="playlist-section" style="display:none">
+      <div class="playlist-header">
+        <span class="panel-title">Library</span>
+        <span class="playlist-count" id="playlist-count"></span>
+        <button id="clear-playlist-btn" class="btn-icon" title="Clear queue">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="playlist-items" id="playlist-items"></div>
+    </div>
+
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">Devices</span>
+        <div id="connection-summary" class="connection-summary"></div>
+      </div>
+      <div class="api-key-row">
+        <input type="text" id="api-key" placeholder="Application ID" spellcheck="false">
+      </div>
+      <div class="devices-list" id="devices-list"></div>
+      <div class="sidebar-actions">
+        <button id="add-device-btn" class="btn btn-small">+ Add Device</button>
+        <button id="connect-btn" class="btn btn-primary btn-small">Connect All</button>
+      </div>
+    </div>
+  </main>
+
+  <div class="timeline-container" id="timeline-container">
+    <canvas id="funscript-timeline"></canvas>
+    <div class="timeline-playhead" id="timeline-playhead"></div>
+    <div class="timeline-hover" id="timeline-hover">
+      <span id="timeline-hover-time"></span>
+    </div>
+  </div>
+
+  <input type="file" id="video-input" accept="video/*,.mkv" hidden>
+  <input type="file" id="script-input" accept=".funscript,.json,.csv" hidden>
+  <input type="file" id="folder-input" webkitdirectory hidden>
+  <div id="toast-container" class="toast-container"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

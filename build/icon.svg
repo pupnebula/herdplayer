@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Background -->
+  <rect width="256" height="256" rx="40" fill="#1a1a1a"/>
+
+  <!-- Three bars — crown shape (sides medium, center tallest).
+       Represents multi-device sync; distinctive at small sizes. -->
+  <rect x="48"  y="100" width="44" height="110" rx="22" fill="#e8863a"/>
+  <rect x="106" y="44"  width="44" height="166" rx="22" fill="#e8863a"/>
+  <rect x="164" y="100" width="44" height="110" rx="22" fill="#e8863a"/>
+</svg>

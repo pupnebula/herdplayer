@@ -1,0 +1,38 @@
+{
+  "name": "herdplayer",
+  "version": "1.1.0",
+  "description": "HerdPlayer - Multi-device funscript player",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "icon": "node scripts/generate-icon.js",
+    "build": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.herdplayer.app",
+    "productName": "HerdPlayer",
+    "electronLanguages": ["en-US"],
+    "compression": "maximum",
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "video.html",
+      "manual.html",
+      "css/**/*",
+      "js/**/*"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ]
+    },
+    "portable": {
+      "artifactName": "HerdPlayer.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.0"
+  }
+}
