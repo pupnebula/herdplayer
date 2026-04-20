@@ -51,9 +51,9 @@ class WebApp extends GroupApp {
     const deviceIndices = this.getReadyIndicesForGroup(this.activeGroupId);
     const devices = deviceIndices.map(i => this.manager.devices[i]).filter(Boolean);
     if (devices.length === 0) return;
-    const velocity  = parseInt(this.dom.velocitySlider.value, 10);
-    const strokeMin = parseInt(this.dom.strokeMinSlider.value, 10);
-    const strokeMax = parseInt(this.dom.strokeMaxSlider.value, 10);
+    const velocity  = parseInt(this.dom.velocitySlider.value, 10) / 100;
+    const strokeMin = parseInt(this.dom.strokeMinSlider.value, 10) / 100;
+    const strokeMax = parseInt(this.dom.strokeMaxSlider.value, 10) / 100;
     try {
       await Promise.allSettled(devices.map(d => d.hampSetVelocity(velocity)));
       await Promise.allSettled(devices.map(d => d.hampSetStroke(strokeMin, strokeMax)));
@@ -63,6 +63,21 @@ class WebApp extends GroupApp {
       this.updateStatus();
     } catch (err) {
       this.toast(`HAMP start error: ${err.message}`, 'error');
+    }
+  }
+
+  async _doUpdate() {
+    const deviceIndices = this.getReadyIndicesForGroup(this.activeGroupId);
+    const devices = deviceIndices.map(i => this.manager.devices[i]).filter(Boolean);
+    if (devices.length === 0) return;
+    const velocity  = parseInt(this.dom.velocitySlider.value, 10) / 100;
+    const strokeMin = parseInt(this.dom.strokeMinSlider.value, 10) / 100;
+    const strokeMax = parseInt(this.dom.strokeMaxSlider.value, 10) / 100;
+    try {
+      await Promise.allSettled(devices.map(d => d.hampSetVelocity(velocity)));
+      await Promise.allSettled(devices.map(d => d.hampSetStroke(strokeMin, strokeMax)));
+    } catch (err) {
+      this.toast(`HAMP update error: ${err.message}`, 'error');
     }
   }
 
@@ -84,8 +99,8 @@ class WebApp extends GroupApp {
     const device = this.manager.devices[deviceIndex];
     if (!device?.hampReady) return;
     try {
-      await device.hampSetVelocity(settings.velocity);
-      await device.hampSetStroke(settings.strokeMin, settings.strokeMax);
+      await device.hampSetVelocity(settings.velocity / 100);
+      await device.hampSetStroke(settings.strokeMin / 100, settings.strokeMax / 100);
       await device.hampStart();
     } catch (err) {
       this.toast(`HAMP start error: ${err.message}`, 'error');
@@ -99,6 +114,17 @@ class WebApp extends GroupApp {
       await device.hampStop();
     } catch (err) {
       this.toast(`HAMP stop error: ${err.message}`, 'error');
+    }
+  }
+
+  async _doMoveUpdate(deviceIndex, groupId, settings) {
+    const device = this.manager.devices[deviceIndex];
+    if (!device?.hampReady) return;
+    try {
+      await device.hampSetVelocity(settings.velocity / 100);
+      await device.hampSetStroke(settings.strokeMin / 100, settings.strokeMax / 100);
+    } catch (err) {
+      this.toast(`HAMP update error: ${err.message}`, 'error');
     }
   }
 
