@@ -174,12 +174,19 @@
 
     <!-- Manual Control -->
     <div class="manual-panel" id="manual-panel">
-      <div class="panel-section">
-        <span class="panel-title">Manual Control</span>
 
-        <div class="manual-status" id="manual-status">
-          <span class="status-dot disconnected" id="hsp-status-dot"></span>
-          <span id="hsp-status-text">Waiting for devices...</span>
+      <!-- Group cards (drag-and-drop) -->
+      <div class="group-cards" id="group-cards"></div>
+      <button class="add-group-btn" id="add-group-btn">+ New Group</button>
+
+      <!-- Controls for the selected group -->
+      <div class="panel-section" id="group-controls-section">
+        <div class="group-controls-header">
+          <span class="panel-title" id="group-controls-title">Controls</span>
+          <div class="manual-status">
+            <span class="status-dot disconnected" id="hsp-status-dot"></span>
+            <span id="hsp-status-text">Waiting for devices...</span>
+          </div>
         </div>
 
         <div class="manual-control-group">

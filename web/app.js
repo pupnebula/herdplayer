@@ -1,12 +1,11 @@
 import { HandyManager, HandyDevice, DeviceMode } from '../js/handy.js';
-import { computeStrokeRange } from '../js/patterns.js';
+import { GroupApp } from '../js/group-app.js';
 
-class WebApp {
+class WebApp extends GroupApp {
   constructor() {
-    this.manager = new HandyManager();
-    this.hampPlaying = false;
-    this.devicesReady = false;
-    this.activePreset = null;
+    super();
+    this.manager    = new HandyManager();
+    this.deviceList = []; // [{ index, name }] — built after connectAll
 
     this.dom = {
       // Devices
@@ -15,7 +14,7 @@ class WebApp {
       connectionSummary: document.getElementById('connection-summary'),
       devicesList: document.getElementById('devices-list'),
       addDeviceBtn: document.getElementById('add-device-btn'),
-      // Manual
+      // Manual (shared with GroupApp)
       statusDot: document.getElementById('hsp-status-dot'),
       statusText: document.getElementById('hsp-status-text'),
       velocitySlider: document.getElementById('velocity-slider'),
@@ -26,19 +25,129 @@ class WebApp {
       strokeMaxValue: document.getElementById('stroke-max-value'),
       startBtn: document.getElementById('hsp-start-btn'),
       stopBtn: document.getElementById('hsp-stop-btn'),
+      groupCards: document.getElementById('group-cards'),
+      addGroupBtn: document.getElementById('add-group-btn'),
+      groupControlsTitle: document.getElementById('group-controls-title'),
     };
 
-    this.initDeviceEvents();
-    this.initManualEvents();
+    this._initGroupModel();
+    this._initSliderEvents();
+    this.dom.addDeviceBtn.addEventListener('click', () => this.addDeviceRow());
+    this.dom.connectBtn.addEventListener('click', () => this.connectAll());
     this.loadSavedState();
   }
 
-  // ── Device Management ──────────────────────────────────────────────
+  // ── Abstract hook implementations ─────────────────────────────────
 
-  initDeviceEvents() {
-    this.dom.connectBtn.addEventListener('click', () => this.connectAll());
-    this.dom.addDeviceBtn.addEventListener('click', () => this.addDeviceRow());
+  _getDevice(index) {
+    const entry = this.deviceList.find(d => d.index === index);
+    if (!entry) return null;
+    return { name: entry.name, ready: this.manager.devices[index]?.hampReady ?? false };
   }
+
+  _anyKnownDevices() { return this.deviceList.length > 0; }
+
+  async _doStart() {
+    const deviceIndices = this.getReadyIndicesForGroup(this.activeGroupId);
+    const devices = deviceIndices.map(i => this.manager.devices[i]).filter(Boolean);
+    if (devices.length === 0) return;
+    const velocity  = parseInt(this.dom.velocitySlider.value, 10);
+    const strokeMin = parseInt(this.dom.strokeMinSlider.value, 10);
+    const strokeMax = parseInt(this.dom.strokeMaxSlider.value, 10);
+    try {
+      await Promise.allSettled(devices.map(d => d.hampSetVelocity(velocity)));
+      await Promise.allSettled(devices.map(d => d.hampSetStroke(strokeMin, strokeMax)));
+      await Promise.allSettled(devices.map(d => d.hampStart()));
+      this.groupPlaying.set(this.activeGroupId, true);
+      this.renderCards();
+      this.updateStatus();
+    } catch (err) {
+      this.toast(`HAMP start error: ${err.message}`, 'error');
+    }
+  }
+
+  async _doStop() {
+    const deviceIndices = this.getReadyIndicesForGroup(this.activeGroupId);
+    const devices = deviceIndices.map(i => this.manager.devices[i]).filter(Boolean);
+    if (devices.length === 0) return;
+    try {
+      await Promise.allSettled(devices.map(d => d.hampStop()));
+      this.groupPlaying.set(this.activeGroupId, false);
+      this.renderCards();
+      this.updateStatus();
+    } catch (err) {
+      this.toast(`HAMP stop error: ${err.message}`, 'error');
+    }
+  }
+
+  async _doMoveStart(deviceIndex, groupId, settings) {
+    const device = this.manager.devices[deviceIndex];
+    if (!device?.hampReady) return;
+    try {
+      await device.hampSetVelocity(settings.velocity);
+      await device.hampSetStroke(settings.strokeMin, settings.strokeMax);
+      await device.hampStart();
+    } catch (err) {
+      this.toast(`HAMP start error: ${err.message}`, 'error');
+    }
+  }
+
+  async _doMoveStop(deviceIndex, groupId) {
+    const device = this.manager.devices[deviceIndex];
+    if (!device?.hampReady) return;
+    try {
+      await device.hampStop();
+    } catch (err) {
+      this.toast(`HAMP stop error: ${err.message}`, 'error');
+    }
+  }
+
+  // ── HAMP setup ────────────────────────────────────────────────────
+
+  async setupHAMP() {
+    if (!this.manager.anyConnected) return;
+    try {
+      await this.manager.setupHAMPAll();
+      const readyCount = this.manager.hampReadyDevices.length;
+      const connCount  = this.manager.connectedDevices.length;
+      this.toast(`HAMP ready on ${readyCount}/${connCount} device(s)`, 'info');
+      this._buildDeviceList();
+      this.updateStatus();
+      this.updateConnectionSummary();
+    } catch (err) {
+      this.toast(`HAMP setup failed: ${err.message}`, 'error');
+      this.updateStatus();
+    }
+  }
+
+  _buildDeviceList() {
+    const rows = this.dom.devicesList.querySelectorAll('.device-row');
+    const prevList = this.deviceList;
+    this.deviceList = [];
+    rows.forEach((row, i) => {
+      if (!row._device?.connected) return;
+      const nickname = row.querySelector('.device-nickname-input')?.value.trim();
+      this.deviceList.push({
+        index: i,
+        name: nickname || row._device.info?.hw_model_name || `Device ${i + 1}`,
+      });
+    });
+
+    // Sync group membership: remove gone devices, assign new ones to group 1
+    const newSet = new Set(this.deviceList.map(d => d.index));
+    for (const [idx] of this.deviceGroup) {
+      if (!newSet.has(idx)) this.deviceGroup.delete(idx);
+    }
+    const firstGroupId = [...this.groups.keys()][0];
+    for (const d of this.deviceList) {
+      if (!this.deviceGroup.has(d.index)) {
+        this.deviceGroup.set(d.index, firstGroupId);
+      }
+    }
+    this.renderCards();
+  }
+
+  // ── Device management ─────────────────────────────────────────────
 
   addDeviceRow(connectionKey = '', deviceOffset = 0, nickname = '') {
     const index = this.dom.devicesList.children.length;
@@ -67,14 +176,14 @@ class WebApp {
     removeBtn.innerHTML = '&times;';
     removeBtn.addEventListener('click', () => {
       if (row._device && this.manager.devices.includes(row._device)) {
-        const idx = this.manager.devices.indexOf(row._device);
-        this.manager.removeDevice(idx);
+        this.manager.removeDevice(this.manager.devices.indexOf(row._device));
       }
       row.remove();
       this.renumberDeviceRows();
       this.saveState();
+      this._buildDeviceList();
       this.updateConnectionSummary();
-      this.updateManualStatus();
+      this.updateStatus();
     });
 
     const reconnectBtn = document.createElement('button');
@@ -83,10 +192,7 @@ class WebApp {
     reconnectBtn.innerHTML = '&#x21bb;';
     reconnectBtn.addEventListener('click', () => this.reconnectDevice(row));
 
-    header.appendChild(label);
-    header.appendChild(nicknameInput);
-    header.appendChild(reconnectBtn);
-    header.appendChild(removeBtn);
+    header.append(label, nicknameInput, reconnectBtn, removeBtn);
 
     const input = document.createElement('input');
     input.type = 'text';
@@ -96,7 +202,7 @@ class WebApp {
     input.value = connectionKey;
     input.addEventListener('change', () => this.saveState());
 
-    const details = document.createElement('div');
+    const details   = document.createElement('div');
     details.className = 'device-row-details';
 
     const offsetGroup = document.createElement('div');
@@ -109,23 +215,24 @@ class WebApp {
     const offsetMinus = document.createElement('button');
     offsetMinus.className = 'btn device-offset-btn';
     offsetMinus.textContent = '-50';
-    offsetMinus.addEventListener('click', () => this.applyDeviceOffset(row, offsetInput, -50));
 
     const offsetInput = document.createElement('input');
     offsetInput.type = 'number';
     offsetInput.className = 'device-offset-input';
     offsetInput.value = deviceOffset;
     offsetInput.step = 50;
-    offsetInput.addEventListener('change', () => this.applyDeviceOffset(row, offsetInput, 0));
 
     const offsetPlus = document.createElement('button');
     offsetPlus.className = 'btn device-offset-btn';
     offsetPlus.textContent = '+50';
-    offsetPlus.addEventListener('click', () => this.applyDeviceOffset(row, offsetInput, 50));
 
     const offsetLabel = document.createElement('span');
     offsetLabel.className = 'device-offset-label';
     offsetLabel.textContent = 'ms';
+
+    offsetMinus.addEventListener('click', () => this._applyOffset(row, offsetInput, -50));
+    offsetPlus.addEventListener('click',  () => this._applyOffset(row, offsetInput, +50));
+    offsetInput.addEventListener('change', () => this._applyOffset(row, offsetInput, 0));
 
     offsetGroup.append(offsetTitle, offsetMinus, offsetInput, offsetPlus, offsetLabel);
 
@@ -133,37 +240,25 @@ class WebApp {
     status.className = 'device-status';
     status.innerHTML = '<span class="status-dot disconnected"></span><span class="device-status-text">--</span>';
 
-    details.appendChild(offsetGroup);
-    details.appendChild(status);
-
-    row.appendChild(header);
-    row.appendChild(input);
-    row.appendChild(details);
+    details.append(offsetGroup, status);
+    row.append(header, input, details);
     this.dom.devicesList.appendChild(row);
     input.focus();
     this.saveState();
   }
 
-  applyDeviceOffset(row, offsetInput, delta) {
+  _applyOffset(row, offsetInput, delta) {
     const newVal = (parseInt(offsetInput.value, 10) || 0) + delta;
     offsetInput.value = newVal;
-    const device = row._device;
-    if (device) device.deviceOffset = newVal;
+    if (row._device) row._device.deviceOffset = newVal;
     this.saveState();
   }
 
   renumberDeviceRows() {
-    const rows = this.dom.devicesList.querySelectorAll('.device-row');
-    rows.forEach((row, i) => {
+    this.dom.devicesList.querySelectorAll('.device-row').forEach((row, i) => {
       row.dataset.index = i;
       row.querySelector('.device-label').textContent = `#${i + 1}`;
     });
-  }
-
-  getDeviceKeys() {
-    return Array.from(this.dom.devicesList.querySelectorAll('.device-row'))
-      .map(row => row.querySelector('.device-key-input').value.trim())
-      .filter(k => k.length > 0);
   }
 
   setDeviceRowStatus(index, statusClass, text) {
@@ -174,16 +269,12 @@ class WebApp {
   }
 
   updateConnectionSummary() {
-    const total = this.manager.devices.length;
+    const total     = this.manager.devices.length;
     const connected = this.manager.connectedDevices.length;
-    const ready = this.manager.hampReadyDevices.length;
+    const ready     = this.manager.hampReadyDevices.length;
     const el = this.dom.connectionSummary;
 
-    if (total === 0) {
-      el.textContent = '';
-      el.className = 'connection-summary';
-      return;
-    }
+    if (total === 0) { el.textContent = ''; el.className = 'connection-summary'; return; }
     if (connected === 0) {
       el.textContent = `0/${total} connected`;
       el.className = 'connection-summary';
@@ -198,41 +289,37 @@ class WebApp {
 
   async connectAll() {
     const apiKey = this.dom.apiKey.value.trim();
-    const keys = this.getDeviceKeys();
-
     if (!apiKey) { this.toast('Please enter an Application ID', 'error'); return; }
-    if (keys.length === 0) { this.toast('Please add at least one device with a Connection Key', 'error'); return; }
+    const rows = [...this.dom.devicesList.querySelectorAll('.device-row')]
+      .filter(r => r.querySelector('.device-key-input').value.trim());
+    if (rows.length === 0) { this.toast('Please add at least one device with a Connection Key', 'error'); return; }
 
     this.saveState();
     this.manager.setApiKey(apiKey);
     this.manager.devices = [];
-    const rows = this.dom.devicesList.querySelectorAll('.device-row');
-    const rowMap = [];
 
     rows.forEach((row, rowIdx) => {
       const key = row.querySelector('.device-key-input').value.trim();
-      if (!key) return;
       let device = row._device;
       if (device) { device.apiKey = apiKey; device.connectionKey = key; }
-      else { device = new HandyDevice(apiKey, key); row._device = device; }
+      else        { device = new HandyDevice(apiKey, key); row._device = device; }
       device.deviceOffset = parseInt(row.querySelector('.device-offset-input')?.value, 10) || 0;
       device.connected = false;
       device.hampReady = false;
       this.manager.devices.push(device);
-      rowMap.push(rowIdx);
     });
 
     this.dom.connectBtn.disabled = true;
 
     await this.manager.connectAll((deviceIdx, status, ...extra) => {
-      const rowIdx = rowMap[deviceIdx];
+      const rowIdx = parseInt(rows[deviceIdx].dataset.index);
       switch (status) {
         case 'connecting': this.setDeviceRowStatus(rowIdx, 'syncing', 'Connecting...'); break;
-        case 'not_found': this.setDeviceRowStatus(rowIdx, 'error', 'Not found'); break;
-        case 'syncing': this.setDeviceRowStatus(rowIdx, 'syncing', `Syncing ${extra[0]}/${extra[1]}`); break;
+        case 'not_found':  this.setDeviceRowStatus(rowIdx, 'error', 'Not found'); break;
+        case 'syncing':    this.setDeviceRowStatus(rowIdx, 'syncing', `Syncing ${extra[0]}/${extra[1]}`); break;
         case 'connected': {
-          const device = this.manager.getDevice(deviceIdx);
-          this.setDeviceRowStatus(rowIdx, 'connected', `${device.info?.hw_model_name || 'Handy'} (${Math.round(device.csOffset)}ms)`);
+          const d = this.manager.getDevice(deviceIdx);
+          this.setDeviceRowStatus(rowIdx, 'connected', `${d.info?.hw_model_name || 'Handy'} (${Math.round(d.csOffset)}ms)`);
           break;
         }
         case 'error': this.setDeviceRowStatus(rowIdx, 'error', `Error: ${extra[0]}`); break;
@@ -259,12 +346,12 @@ class WebApp {
 
     const rowIndex = row.dataset.index;
     const nickname = row.querySelector('.device-nickname-input').value.trim();
-    const deviceLabel = nickname || `Device #${parseInt(rowIndex) + 1}`;
+    const label = nickname || `Device #${parseInt(rowIndex) + 1}`;
     this.manager.setApiKey(apiKey);
 
     let device = row._device;
     if (device) { device.apiKey = apiKey; device.connectionKey = connectionKey; }
-    else { device = new HandyDevice(apiKey, connectionKey); row._device = device; this.manager.devices.push(device); }
+    else        { device = new HandyDevice(apiKey, connectionKey); row._device = device; }
     if (!this.manager.devices.includes(device)) this.manager.devices.push(device);
 
     device.deviceOffset = parseInt(row.querySelector('.device-offset-input')?.value, 10) || 0;
@@ -275,13 +362,13 @@ class WebApp {
       this.setDeviceRowStatus(rowIndex, 'syncing', 'Connecting...');
       if (!await device.checkConnection()) {
         this.setDeviceRowStatus(rowIndex, 'error', 'Not found');
-        this.toast(`${deviceLabel} not found`, 'error');
-        this.updateConnectionSummary();
-        this.updateManualStatus();
+        this.toast(`${label} not found`, 'error');
         return;
       }
       this.setDeviceRowStatus(rowIndex, 'syncing', 'Syncing 0/30');
-      await device.calculateServerTimeOffset(30, (s, total) => this.setDeviceRowStatus(rowIndex, 'syncing', `Syncing ${s}/${total}`));
+      await device.calculateServerTimeOffset(30, (s, total) =>
+        this.setDeviceRowStatus(rowIndex, 'syncing', `Syncing ${s}/${total}`)
+      );
       try { await device.getInfo(); } catch { /* ok */ }
 
       this.setDeviceRowStatus(rowIndex, 'syncing', 'Setting up HAMP...');
@@ -289,164 +376,29 @@ class WebApp {
       device.hampReady = true;
 
       this.setDeviceRowStatus(rowIndex, 'connected', `${device.info?.hw_model_name || 'Handy'} (${Math.round(device.csOffset)}ms)`);
-      this.toast(`${deviceLabel} reconnected`, 'success');
+      this.toast(`${label} reconnected`, 'success');
     } catch (err) {
       this.setDeviceRowStatus(rowIndex, 'error', `Error: ${err.message}`);
       this.toast(`Reconnect failed: ${err.message}`, 'error');
     }
+    this._buildDeviceList();
     this.updateConnectionSummary();
-    this.devicesReady = this.manager.anyHampReady;
-    this.updateManualStatus();
+    this.updateStatus();
   }
 
-  // ── HAMP ───────────────────────────────────────────────────────────
-
-  async setupHAMP() {
-    if (!this.manager.anyConnected) return;
-    try {
-      await this.manager.setupHAMPAll();
-      const readyCount = this.manager.hampReadyDevices.length;
-      const connCount = this.manager.connectedDevices.length;
-      this.toast(`HAMP ready on ${readyCount}/${connCount} device(s)`, 'info');
-      this.devicesReady = readyCount > 0;
-      this.updateManualStatus();
-      this.updateConnectionSummary();
-    } catch (err) {
-      this.toast(`HAMP setup failed: ${err.message}`, 'error');
-      this.devicesReady = false;
-      this.updateManualStatus();
-    }
-  }
-
-  async hampStart() {
-    if (!this.manager.anyHampReady) return;
-    const velocity = parseInt(this.dom.velocitySlider.value, 10);
-    const strokeMin = parseInt(this.dom.strokeMinSlider.value, 10);
-    const strokeMax = parseInt(this.dom.strokeMaxSlider.value, 10);
-    try {
-      await this.manager.hampSetVelocityAll(velocity);
-      await this.manager.hampSetStrokeAll(strokeMin, strokeMax);
-      await this.manager.hampStartAll();
-      this.hampPlaying = true;
-      this.updateManualStatus();
-    } catch (err) {
-      this.toast(`HAMP start error: ${err.message}`, 'error');
-    }
-  }
-
-  async hampStop() {
-    if (!this.manager.anyHampReady) return;
-    try {
-      await this.manager.hampStopAll();
-      this.hampPlaying = false;
-      this.updateManualStatus();
-    } catch (err) {
-      this.toast(`HAMP stop error: ${err.message}`, 'error');
-    }
-  }
-
-  // ── Manual Controls ────────────────────────────────────────────────
-
-  initManualEvents() {
-    const { dom } = this;
-
-    dom.startBtn.addEventListener('click', () => this.hampStart());
-
-    dom.stopBtn.addEventListener('click', () => {
-      this.clearActivePreset();
-      this.hampStop();
-    });
-
-    dom.velocitySlider.addEventListener('input', () => {
-      this.clearActivePreset();
-      const val = parseInt(dom.velocitySlider.value, 10);
-      dom.velocityValue.textContent = `${val}%`;
-      if (this.hampPlaying) this.hampStart();
-    });
-
-    dom.strokeMinSlider.addEventListener('input', () => {
-      this.clearActivePreset();
-      let min = parseInt(dom.strokeMinSlider.value, 10);
-      const max = parseInt(dom.strokeMaxSlider.value, 10);
-      if (min >= max) { min = max - 1; dom.strokeMinSlider.value = min; }
-      dom.strokeMinValue.textContent = `${min}%`;
-      if (this.hampPlaying) this.hampStart();
-    });
-
-    dom.strokeMaxSlider.addEventListener('input', () => {
-      this.clearActivePreset();
-      const min = parseInt(dom.strokeMinSlider.value, 10);
-      let max = parseInt(dom.strokeMaxSlider.value, 10);
-      if (max <= min) { max = min + 1; dom.strokeMaxSlider.value = max; }
-      dom.strokeMaxValue.textContent = `${max}%`;
-      if (this.hampPlaying) this.hampStart();
-    });
-
-    for (const btn of document.querySelectorAll('.preset-btn')) {
-      btn.addEventListener('click', () => {
-        this.applyPreset(btn.dataset.position, parseInt(btn.dataset.speed, 10), btn);
-      });
-    }
-  }
-
-  applyPreset(position, speed, btn) {
-    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    this.activePreset = { position, speed, btn };
-
-    const { min, max } = computeStrokeRange(position, false);
-    const { dom } = this;
-    dom.velocitySlider.value = speed;
-    dom.velocityValue.textContent = `${speed}%`;
-    dom.strokeMinSlider.value = min;
-    dom.strokeMinValue.textContent = `${min}%`;
-    dom.strokeMaxSlider.value = max;
-    dom.strokeMaxValue.textContent = `${max}%`;
-
-    this.hampStart();
-  }
-
-  clearActivePreset() {
-    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
-    this.activePreset = null;
-  }
-
-  updateManualStatus() {
-    const { dom } = this;
-    const canInteract = this.devicesReady;
-    dom.startBtn.disabled = !canInteract || this.hampPlaying;
-    dom.stopBtn.disabled = !canInteract || !this.hampPlaying;
-    dom.velocitySlider.disabled = !canInteract;
-    dom.strokeMinSlider.disabled = !canInteract;
-    dom.strokeMaxSlider.disabled = !canInteract;
-
-    document.querySelectorAll('.preset-btn').forEach(b => b.disabled = !canInteract);
-
-    if (!this.devicesReady) {
-      dom.statusDot.className = 'status-dot disconnected';
-      dom.statusText.textContent = 'Waiting for devices...';
-    } else if (this.hampPlaying) {
-      dom.statusDot.className = 'status-dot connected';
-      dom.statusText.textContent = 'Playing';
-    } else {
-      dom.statusDot.className = 'status-dot syncing';
-      dom.statusText.textContent = 'Ready';
-    }
-  }
-
-  // ── Persistence ────────────────────────────────────────────────────
+  // ── Persistence ───────────────────────────────────────────────────
 
   loadSavedState() {
-    const apiKey = localStorage.getItem('herdplayer_apiKey');
-    const keysJson = localStorage.getItem('herdplayer_deviceKeys');
-    const offsetsJson = localStorage.getItem('herdplayer_deviceOffsets');
+    const apiKey       = localStorage.getItem('herdplayer_apiKey');
+    const keysJson     = localStorage.getItem('herdplayer_deviceKeys');
+    const offsetsJson  = localStorage.getItem('herdplayer_deviceOffsets');
     const nicknamesJson = localStorage.getItem('herdplayer_deviceNicknames');
 
     if (apiKey) this.dom.apiKey.value = apiKey;
 
     let keys = [], offsets = [], nicknames = [];
-    try { keys = JSON.parse(keysJson) || []; } catch { /* ignore */ }
-    try { offsets = JSON.parse(offsetsJson) || []; } catch { /* ignore */ }
+    try { keys     = JSON.parse(keysJson)     || []; } catch { /* ignore */ }
+    try { offsets  = JSON.parse(offsetsJson)  || []; } catch { /* ignore */ }
     try { nicknames = JSON.parse(nicknamesJson) || []; } catch { /* ignore */ }
 
     if (keys.length === 0) keys = [''];
@@ -458,19 +410,18 @@ class WebApp {
   saveState() {
     localStorage.setItem('herdplayer_apiKey', this.dom.apiKey.value);
     const rows = this.dom.devicesList.querySelectorAll('.device-row');
-    localStorage.setItem('herdplayer_deviceKeys', JSON.stringify(Array.from(rows).map(r => r.querySelector('.device-key-input').value)));
-    localStorage.setItem('herdplayer_deviceOffsets', JSON.stringify(Array.from(rows).map(r => parseInt(r.querySelector('.device-offset-input')?.value, 10) || 0)));
-    localStorage.setItem('herdplayer_deviceNicknames', JSON.stringify(Array.from(rows).map(r => r.querySelector('.device-nickname-input').value)));
+    localStorage.setItem('herdplayer_deviceKeys',     JSON.stringify([...rows].map(r => r.querySelector('.device-key-input').value)));
+    localStorage.setItem('herdplayer_deviceOffsets',  JSON.stringify([...rows].map(r => parseInt(r.querySelector('.device-offset-input')?.value, 10) || 0)));
+    localStorage.setItem('herdplayer_deviceNicknames', JSON.stringify([...rows].map(r => r.querySelector('.device-nickname-input').value)));
   }
 
-  // ── Toast ──────────────────────────────────────────────────────────
+  // ── Toast ─────────────────────────────────────────────────────────
 
   toast(message, type = 'info') {
-    const container = document.getElementById('toast-container');
     const el = document.createElement('div');
     el.className = `toast ${type}`;
     el.textContent = message;
-    container.appendChild(el);
+    document.getElementById('toast-container').appendChild(el);
     setTimeout(() => {
       el.classList.add('fade-out');
       el.addEventListener('animationend', () => el.remove());
