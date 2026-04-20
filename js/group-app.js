@@ -29,13 +29,34 @@ export class GroupApp {
   _initSliderEvents() {
     const { dom } = this;
 
+    // Throttle live updates while dragging: leading-edge fires immediately
+    // (responsive), subsequent events within the window coalesce into one
+    // trailing call so the final slider value is always delivered.
+    const UPDATE_INTERVAL_MS = 150;
+    let lastUpdateAt = 0;
+    let trailingTimer = null;
+    const scheduleUpdate = () => {
+      const elapsed = Date.now() - lastUpdateAt;
+      if (elapsed >= UPDATE_INTERVAL_MS) {
+        if (trailingTimer) { clearTimeout(trailingTimer); trailingTimer = null; }
+        lastUpdateAt = Date.now();
+        this._doUpdate();
+      } else if (!trailingTimer) {
+        trailingTimer = setTimeout(() => {
+          trailingTimer = null;
+          lastUpdateAt = Date.now();
+          this._doUpdate();
+        }, UPDATE_INTERVAL_MS - elapsed);
+      }
+    };
+
     dom.startBtn.addEventListener('click', () => this._doStart());
     dom.stopBtn.addEventListener('click', () => this._doStop());
 
     dom.velocitySlider.addEventListener('input', () => {
       this.clearActivePreset();
       dom.velocityValue.textContent = `${dom.velocitySlider.value}%`;
-      if (this.isPlayingOnCurrentGroup()) this._doUpdate();
+      if (this.isPlayingOnCurrentGroup()) scheduleUpdate();
     });
 
     dom.strokeMinSlider.addEventListener('input', () => {
@@ -44,7 +65,7 @@ export class GroupApp {
       const max = parseInt(dom.strokeMaxSlider.value, 10);
       if (min >= max) { min = max - 1; dom.strokeMinSlider.value = min; }
       dom.strokeMinValue.textContent = `${min}%`;
-      if (this.isPlayingOnCurrentGroup()) this._doUpdate();
+      if (this.isPlayingOnCurrentGroup()) scheduleUpdate();
     });
 
     dom.strokeMaxSlider.addEventListener('input', () => {
@@ -53,7 +74,7 @@ export class GroupApp {
       let max = parseInt(dom.strokeMaxSlider.value, 10);
       if (max <= min) { max = min + 1; dom.strokeMaxSlider.value = max; }
       dom.strokeMaxValue.textContent = `${max}%`;
-      if (this.isPlayingOnCurrentGroup()) this._doUpdate();
+      if (this.isPlayingOnCurrentGroup()) scheduleUpdate();
     });
 
     for (const btn of document.querySelectorAll('.preset-btn')) {
