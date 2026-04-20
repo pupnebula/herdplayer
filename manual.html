@@ -13,100 +13,160 @@
   </header>
 
   <main>
-    <div class="manual-panel" id="manual-panel">
-      <div class="panel-section">
-        <span class="panel-title">Manual Control</span>
+    <div id="side-panel-container">
 
-        <div class="manual-status" id="manual-status">
-          <span class="status-dot disconnected" id="hsp-status-dot"></span>
-          <span id="hsp-status-text">Waiting for devices...</span>
-        </div>
+      <!-- ── HAMP (Manual) mode panel ─────────── -->
+      <div class="mode-section" data-panel="hamp" hidden>
+        <div class="manual-panel" id="manual-panel">
 
-        <div class="manual-control-group">
-          <div class="manual-label-row">
-            <span class="label">Velocity</span>
-            <span class="manual-value" id="velocity-value">0%</span>
+          <!-- Group cards (drag-and-drop) -->
+          <div class="group-cards" id="group-cards"></div>
+          <button class="add-group-btn" id="add-group-btn">+ New Group</button>
+
+          <!-- Controls for the selected group -->
+          <div class="panel-section" id="group-controls-section">
+            <div class="group-controls-header">
+              <span class="panel-title" id="group-controls-title">Controls</span>
+              <div class="manual-status">
+                <span class="status-dot disconnected" id="hsp-status-dot"></span>
+                <span id="hsp-status-text">Select a group</span>
+              </div>
+            </div>
+            <div class="manual-control-group">
+              <div class="manual-label-row">
+                <span class="label">Velocity</span>
+                <span class="manual-value" id="velocity-value">0%</span>
+              </div>
+              <input type="range" id="velocity-slider" min="0" max="100" value="0" step="1">
+            </div>
+            <div class="manual-control-group">
+              <div class="manual-label-row">
+                <span class="label">Stroke Min</span>
+                <span class="manual-value" id="stroke-min-value">0%</span>
+              </div>
+              <input type="range" id="stroke-min-slider" min="0" max="100" value="0" step="1">
+            </div>
+            <div class="manual-control-group">
+              <div class="manual-label-row">
+                <span class="label">Stroke Max</span>
+                <span class="manual-value" id="stroke-max-value">100%</span>
+              </div>
+              <input type="range" id="stroke-max-slider" min="0" max="100" value="100" step="1">
+            </div>
+            <div class="manual-actions">
+              <button id="hsp-start-btn" class="btn btn-primary" disabled>Start</button>
+              <button id="hsp-stop-btn" class="btn" disabled>Stop</button>
+            </div>
           </div>
-          <input type="range" id="velocity-slider" min="0" max="100" value="0" step="1">
-        </div>
 
-        <div class="manual-control-group">
-          <div class="manual-label-row">
-            <span class="label">Stroke Min</span>
-            <span class="manual-value" id="stroke-min-value">0%</span>
+          <!-- Presets -->
+          <div class="panel-section preset-section">
+            <span class="panel-title">Presets</span>
+            <div class="preset-grid">
+              <span class="preset-header"></span>
+              <span class="preset-header">Slow</span>
+              <span class="preset-header">Med</span>
+              <span class="preset-header">High</span>
+              <span class="preset-header">Fast</span>
+
+              <span class="preset-row-label">Top</span>
+              <button class="preset-btn" data-position="top" data-speed="15">Slow</button>
+              <button class="preset-btn" data-position="top" data-speed="50">Med</button>
+              <button class="preset-btn" data-position="top" data-speed="70">High</button>
+              <button class="preset-btn" data-position="top" data-speed="90">Fast</button>
+
+              <span class="preset-row-label">Mid</span>
+              <button class="preset-btn" data-position="middle" data-speed="15">Slow</button>
+              <button class="preset-btn" data-position="middle" data-speed="50">Med</button>
+              <button class="preset-btn" data-position="middle" data-speed="70">High</button>
+              <button class="preset-btn" data-position="middle" data-speed="90">Fast</button>
+
+              <span class="preset-row-label">Bottom</span>
+              <button class="preset-btn" data-position="bottom" data-speed="15">Slow</button>
+              <button class="preset-btn" data-position="bottom" data-speed="50">Med</button>
+              <button class="preset-btn" data-position="bottom" data-speed="70">High</button>
+              <button class="preset-btn" data-position="bottom" data-speed="90">Fast</button>
+
+              <span class="preset-row-label">Full</span>
+              <button class="preset-btn" data-position="full" data-speed="15">Slow</button>
+              <button class="preset-btn" data-position="full" data-speed="50">Med</button>
+              <button class="preset-btn" data-position="full" data-speed="70">High</button>
+              <button class="preset-btn" data-position="full" data-speed="90">Fast</button>
+            </div>
           </div>
-          <input type="range" id="stroke-min-slider" min="0" max="100" value="0" step="1">
-        </div>
 
-        <div class="manual-control-group">
-          <div class="manual-label-row">
-            <span class="label">Stroke Max</span>
-            <span class="manual-value" id="stroke-max-value">100%</span>
-          </div>
-          <input type="range" id="stroke-max-slider" min="0" max="100" value="100" step="1">
-        </div>
-
-        <div class="manual-actions">
-          <button id="hsp-start-btn" class="btn btn-primary" disabled>Start</button>
-          <button id="hsp-stop-btn" class="btn" disabled>Stop</button>
         </div>
       </div>
 
-      <div class="panel-section preset-section">
-        <span class="panel-title">Presets</span>
-        <div class="preset-grid">
-          <span class="preset-header"></span>
-          <span class="preset-header">Slow</span>
-          <span class="preset-header">Med</span>
-          <span class="preset-header">High</span>
-          <span class="preset-header">Fast</span>
+      <!-- ── Queue mode panel ─────────────────── -->
+      <div class="mode-section" data-panel="queue" hidden>
+        <div class="queue-panel">
 
-          <span class="preset-row-label">Top</span>
-          <button class="preset-btn" data-position="top" data-speed="15">Slow</button>
-          <button class="preset-btn" data-position="top" data-speed="50">Med</button>
-          <button class="preset-btn" data-position="top" data-speed="70">High</button>
-          <button class="preset-btn" data-position="top" data-speed="90">Fast</button>
+          <div class="queue-status manual-status">
+            <span class="status-dot disconnected" id="queue-status-dot"></span>
+            <span id="queue-status-text">Waiting for devices...</span>
+          </div>
 
-          <span class="preset-row-label">Mid</span>
-          <button class="preset-btn" data-position="middle" data-speed="15">Slow</button>
-          <button class="preset-btn" data-position="middle" data-speed="50">Med</button>
-          <button class="preset-btn" data-position="middle" data-speed="70">High</button>
-          <button class="preset-btn" data-position="middle" data-speed="90">Fast</button>
+          <button id="queue-emergency-stop" class="btn-emergency" disabled>
+            Emergency Stop
+          </button>
 
-          <span class="preset-row-label">Bottom</span>
-          <button class="preset-btn" data-position="bottom" data-speed="15">Slow</button>
-          <button class="preset-btn" data-position="bottom" data-speed="50">Med</button>
-          <button class="preset-btn" data-position="bottom" data-speed="70">High</button>
-          <button class="preset-btn" data-position="bottom" data-speed="90">Fast</button>
+          <div class="panel-section">
+            <div class="manual-control-group">
+              <div class="manual-label-row">
+                <span class="label">Speed</span>
+                <span class="manual-value" id="queue-rate-value">1.0×</span>
+              </div>
+              <input type="range" id="queue-rate-slider" min="0.2" max="3.0" value="1.0" step="0.1" disabled>
+            </div>
+            <button id="queue-start-btn" class="btn btn-primary" disabled>Start Queue</button>
+          </div>
 
-          <span class="preset-row-label">Full</span>
-          <button class="preset-btn" data-position="full" data-speed="15">Slow</button>
-          <button class="preset-btn" data-position="full" data-speed="50">Med</button>
-          <button class="preset-btn" data-position="full" data-speed="70">High</button>
-          <button class="preset-btn" data-position="full" data-speed="90">Fast</button>
+          <div class="panel-section">
+            <span class="panel-title">Queue</span>
+            <div class="queue-timeline" id="queue-timeline">
+              <div class="queue-timeline-empty">Add patterns from the library below</div>
+            </div>
+          </div>
 
-          <span class="preset-row-label">Natural</span>
-          <button class="preset-btn preset-natural" data-position="full" data-speed="0" data-mode="natural">Slow</button>
-          <button class="preset-btn preset-natural" data-position="full" data-speed="40" data-mode="natural">Med</button>
-          <button class="preset-btn preset-natural" data-position="full" data-speed="60" data-mode="natural">High</button>
-          <button class="preset-btn preset-natural" data-position="full" data-speed="80" data-mode="natural">Fast</button>
+          <div class="panel-section">
+            <span class="panel-title">Library</span>
 
-          <span class="preset-row-label">Skye Special</span>
-          <button class="preset-btn preset-natural" data-speed="15" data-mode="skye">Slow</button>
-          <button class="preset-btn preset-natural" data-speed="45" data-mode="skye">Med</button>
-          <button class="preset-btn preset-natural" data-speed="65" data-mode="skye">High</button>
-          <button class="preset-btn preset-natural" data-speed="75" data-mode="skye">Fast</button>
+            <div class="library-filters">
+              <div class="library-filter-row">
+                <button class="filter-btn active" data-filter-speed="all">All</button>
+                <button class="filter-btn" data-filter-speed="slow">Slow</button>
+                <button class="filter-btn" data-filter-speed="medium">Med</button>
+                <button class="filter-btn" data-filter-speed="fast">Fast</button>
+                <button class="filter-btn" data-filter-speed="sprint">Sprint</button>
+              </div>
+              <div class="library-filter-row">
+                <button class="filter-btn active" data-filter-pos="all">All</button>
+                <button class="filter-btn" data-filter-pos="top">Top</button>
+                <button class="filter-btn" data-filter-pos="bottom">Bottom</button>
+                <button class="filter-btn" data-filter-pos="full">Full</button>
+              </div>
+            </div>
+
+            <div class="queue-library" id="queue-library">
+              <span class="queue-empty">Loading patterns…</span>
+            </div>
+          </div>
+
         </div>
       </div>
 
-      <div class="manual-disabled-overlay" id="manual-disabled-overlay">
-        <span>Switch to Manual mode in the control window</span>
+      <!-- ── Idle state (modes with no side panel) ── -->
+      <div class="mode-section mode-section--idle" data-panel="__idle__">
+        <span class="idle-hint">No controls for this mode</span>
       </div>
+
     </div>
   </main>
 
   <div id="toast-container" class="toast-container"></div>
 
   <script type="module" src="js/manual-app.js"></script>
+  <script type="module" src="js/queue-app.js"></script>
 </body>
 </html>

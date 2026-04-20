@@ -1,17 +1,11 @@
 import { HandyManager, HandyDevice, DeviceMode } from '../js/handy.js';
-import {
-  PRESET_MODES,
-  generateSimplePattern,
-  computeStrokeRange,
-} from '../js/patterns.js';
+import { computeStrokeRange } from '../js/patterns.js';
 
 class WebApp {
   constructor() {
     this.manager = new HandyManager();
-    this.hspPlaying = false;
-    this.hspTailIndex = 0;
+    this.hampPlaying = false;
     this.devicesReady = false;
-    this.naturalTimerId = null;
     this.activePreset = null;
 
     this.dom = {
@@ -182,7 +176,7 @@ class WebApp {
   updateConnectionSummary() {
     const total = this.manager.devices.length;
     const connected = this.manager.connectedDevices.length;
-    const ready = this.manager.hspReadyDevices.length;
+    const ready = this.manager.hampReadyDevices.length;
     const el = this.dom.connectionSummary;
 
     if (total === 0) {
@@ -223,7 +217,7 @@ class WebApp {
       else { device = new HandyDevice(apiKey, key); row._device = device; }
       device.deviceOffset = parseInt(row.querySelector('.device-offset-input')?.value, 10) || 0;
       device.connected = false;
-      device.hspReady = false;
+      device.hampReady = false;
       this.manager.devices.push(device);
       rowMap.push(rowIdx);
     });
@@ -251,7 +245,7 @@ class WebApp {
     const connected = this.manager.connectedDevices.length;
     if (connected > 0) {
       this.toast(`${connected}/${this.manager.devices.length} device(s) connected`, 'success');
-      await this.setupHSP();
+      await this.setupHAMP();
     } else {
       this.toast('No devices connected', 'error');
     }
@@ -275,7 +269,7 @@ class WebApp {
 
     device.deviceOffset = parseInt(row.querySelector('.device-offset-input')?.value, 10) || 0;
     device.connected = false;
-    device.hspReady = false;
+    device.hampReady = false;
 
     try {
       this.setDeviceRowStatus(rowIndex, 'syncing', 'Connecting...');
@@ -290,10 +284,9 @@ class WebApp {
       await device.calculateServerTimeOffset(30, (s, total) => this.setDeviceRowStatus(rowIndex, 'syncing', `Syncing ${s}/${total}`));
       try { await device.getInfo(); } catch { /* ok */ }
 
-      this.setDeviceRowStatus(rowIndex, 'syncing', 'Setting up HSP...');
-      await device.setMode(DeviceMode.HSP);
-      await device.hspSetup();
-      device.hspReady = true;
+      this.setDeviceRowStatus(rowIndex, 'syncing', 'Setting up HAMP...');
+      await device.setMode(DeviceMode.HAMP);
+      device.hampReady = true;
 
       this.setDeviceRowStatus(rowIndex, 'connected', `${device.info?.hw_model_name || 'Handy'} (${Math.round(device.csOffset)}ms)`);
       this.toast(`${deviceLabel} reconnected`, 'success');
@@ -302,65 +295,54 @@ class WebApp {
       this.toast(`Reconnect failed: ${err.message}`, 'error');
     }
     this.updateConnectionSummary();
-    this.devicesReady = this.manager.anyHspReady;
+    this.devicesReady = this.manager.anyHampReady;
     this.updateManualStatus();
   }
 
-  // ── HSP ────────────────────────────────────────────────────────────
+  // ── HAMP ───────────────────────────────────────────────────────────
 
-  async setupHSP() {
+  async setupHAMP() {
     if (!this.manager.anyConnected) return;
     try {
-      await this.manager.setupHSPAll();
-      const readyCount = this.manager.hspReadyDevices.length;
+      await this.manager.setupHAMPAll();
+      const readyCount = this.manager.hampReadyDevices.length;
       const connCount = this.manager.connectedDevices.length;
-      this.toast(`HSP ready on ${readyCount}/${connCount} device(s)`, 'info');
+      this.toast(`HAMP ready on ${readyCount}/${connCount} device(s)`, 'info');
       this.devicesReady = readyCount > 0;
       this.updateManualStatus();
       this.updateConnectionSummary();
     } catch (err) {
-      this.toast(`HSP setup failed: ${err.message}`, 'error');
+      this.toast(`HAMP setup failed: ${err.message}`, 'error');
       this.devicesReady = false;
       this.updateManualStatus();
     }
   }
 
-  async hspStart(points) {
-    if (!this.manager.anyHspReady) return;
+  async hampStart() {
+    if (!this.manager.anyHampReady) return;
+    const velocity = parseInt(this.dom.velocitySlider.value, 10);
+    const strokeMin = parseInt(this.dom.strokeMinSlider.value, 10);
+    const strokeMax = parseInt(this.dom.strokeMaxSlider.value, 10);
     try {
-      this.hspTailIndex = points.length - 1;
-      if (points.length <= 100) {
-        await this.manager.hspPlayAllWithAdd(points, true, this.hspTailIndex, true);
-      } else {
-        await this.manager.hspAddPointsAll(points, true, this.hspTailIndex);
-        await this.manager.hspPlayAll(true);
-      }
-      this.hspPlaying = true;
+      await this.manager.hampSetVelocityAll(velocity);
+      await this.manager.hampSetStrokeAll(strokeMin, strokeMax);
+      await this.manager.hampStartAll();
+      this.hampPlaying = true;
       this.updateManualStatus();
     } catch (err) {
-      this.toast(`HSP start error: ${err.message}`, 'error');
+      this.toast(`HAMP start error: ${err.message}`, 'error');
     }
   }
 
-  async hspStop() {
-    if (!this.manager.anyHspReady) return;
+  async hampStop() {
+    if (!this.manager.anyHampReady) return;
     try {
-      await this.manager.hspStopAll();
-      this.hspPlaying = false;
-      this.hspTailIndex = 0;
+      await this.manager.hampStopAll();
+      this.hampPlaying = false;
       this.updateManualStatus();
     } catch (err) {
-      this.toast(`HSP stop error: ${err.message}`, 'error');
+      this.toast(`HAMP stop error: ${err.message}`, 'error');
     }
-  }
-
-  async hspAppend(points) {
-    if (!this.manager.anyHspReady || !this.hspPlaying) return;
-    try {
-      const newTail = this.hspTailIndex + points.length;
-      await this.manager.hspAddPointsAll(points, false, newTail);
-      this.hspTailIndex = newTail;
-    } catch { /* ignore transient errors during append */ }
   }
 
   // ── Manual Controls ────────────────────────────────────────────────
@@ -368,30 +350,18 @@ class WebApp {
   initManualEvents() {
     const { dom } = this;
 
-    dom.startBtn.addEventListener('click', () => {
-      const velocity = parseInt(dom.velocitySlider.value, 10);
-      const min = parseInt(dom.strokeMinSlider.value, 10);
-      const max = parseInt(dom.strokeMaxSlider.value, 10);
-      const points = generateSimplePattern(velocity, min, max, 3);
-      this.hspStart(points);
-    });
+    dom.startBtn.addEventListener('click', () => this.hampStart());
 
     dom.stopBtn.addEventListener('click', () => {
       this.clearActivePreset();
-      this.hspStop();
+      this.hampStop();
     });
 
     dom.velocitySlider.addEventListener('input', () => {
       this.clearActivePreset();
       const val = parseInt(dom.velocitySlider.value, 10);
       dom.velocityValue.textContent = `${val}%`;
-      if (this.hspPlaying) {
-        const velocity = parseInt(dom.velocitySlider.value, 10);
-        const min = parseInt(dom.strokeMinSlider.value, 10);
-        const max = parseInt(dom.strokeMaxSlider.value, 10);
-        const points = generateSimplePattern(velocity, min, max, 3);
-        this.hspStart(points);
-      }
+      if (this.hampPlaying) this.hampStart();
     });
 
     dom.strokeMinSlider.addEventListener('input', () => {
@@ -400,11 +370,7 @@ class WebApp {
       const max = parseInt(dom.strokeMaxSlider.value, 10);
       if (min >= max) { min = max - 1; dom.strokeMinSlider.value = min; }
       dom.strokeMinValue.textContent = `${min}%`;
-      if (this.hspPlaying) {
-        const velocity = parseInt(dom.velocitySlider.value, 10);
-        const points = generateSimplePattern(velocity, min, max, 3);
-        this.hspStart(points);
-      }
+      if (this.hampPlaying) this.hampStart();
     });
 
     dom.strokeMaxSlider.addEventListener('input', () => {
@@ -413,82 +379,43 @@ class WebApp {
       let max = parseInt(dom.strokeMaxSlider.value, 10);
       if (max <= min) { max = min + 1; dom.strokeMaxSlider.value = max; }
       dom.strokeMaxValue.textContent = `${max}%`;
-      if (this.hspPlaying) {
-        const velocity = parseInt(dom.velocitySlider.value, 10);
-        const points = generateSimplePattern(velocity, min, max, 3);
-        this.hspStart(points);
-      }
+      if (this.hampPlaying) this.hampStart();
     });
 
     for (const btn of document.querySelectorAll('.preset-btn')) {
       btn.addEventListener('click', () => {
-        const position = btn.dataset.position;
-        const speed = parseInt(btn.dataset.speed, 10);
-        const mode = btn.dataset.mode || 'simple';
-        this.applyPreset(position, speed, mode, btn);
+        this.applyPreset(btn.dataset.position, parseInt(btn.dataset.speed, 10), btn);
       });
     }
   }
 
-  applyPreset(position, speed, mode, btn) {
-    this.stopNaturalTimer();
-
+  applyPreset(position, speed, btn) {
     document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    this.activePreset = { position, speed, mode, btn };
+    this.activePreset = { position, speed, btn };
 
-    const handler = PRESET_MODES[mode] ?? PRESET_MODES.simple;
-    const points = handler.generate(position, speed);
-
-    this.updateSlidersFromPreset(position, speed, mode);
-    this.hspStart(points);
-
-    if (handler.refillInterval) {
-      const tick = () => {
-        if (!this.hspPlaying || !this.activePreset) return;
-        const { position, speed, mode } = this.activePreset;
-        const h = PRESET_MODES[mode] ?? PRESET_MODES.simple;
-        const morePoints = h.refill(position, speed);
-        this.hspAppend(morePoints);
-        this.naturalTimerId = setTimeout(tick, handler.refillInterval);
-      };
-      this.naturalTimerId = setTimeout(tick, handler.refillInterval);
-    }
-  }
-
-  updateSlidersFromPreset(position, speed, mode) {
+    const { min, max } = computeStrokeRange(position, false);
     const { dom } = this;
-    const isVaried = mode !== 'simple';
-    const displayPosition = mode === 'skye' ? 'full' : position;
-    const { min, max } = computeStrokeRange(displayPosition, isVaried);
-    const velocity = Math.min(100, speed + (isVaried ? Math.round(Math.random() * 20) : 0));
-
-    dom.velocitySlider.value = velocity;
-    dom.velocityValue.textContent = `${velocity}%`;
+    dom.velocitySlider.value = speed;
+    dom.velocityValue.textContent = `${speed}%`;
     dom.strokeMinSlider.value = min;
     dom.strokeMinValue.textContent = `${min}%`;
     dom.strokeMaxSlider.value = max;
     dom.strokeMaxValue.textContent = `${max}%`;
+
+    this.hampStart();
   }
 
   clearActivePreset() {
-    this.stopNaturalTimer();
     document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
     this.activePreset = null;
-  }
-
-  stopNaturalTimer() {
-    if (this.naturalTimerId) {
-      clearTimeout(this.naturalTimerId);
-      this.naturalTimerId = null;
-    }
   }
 
   updateManualStatus() {
     const { dom } = this;
     const canInteract = this.devicesReady;
-    dom.startBtn.disabled = !canInteract || this.hspPlaying;
-    dom.stopBtn.disabled = !canInteract || !this.hspPlaying;
+    dom.startBtn.disabled = !canInteract || this.hampPlaying;
+    dom.stopBtn.disabled = !canInteract || !this.hampPlaying;
     dom.velocitySlider.disabled = !canInteract;
     dom.strokeMinSlider.disabled = !canInteract;
     dom.strokeMaxSlider.disabled = !canInteract;
@@ -498,7 +425,7 @@ class WebApp {
     if (!this.devicesReady) {
       dom.statusDot.className = 'status-dot disconnected';
       dom.statusText.textContent = 'Waiting for devices...';
-    } else if (this.hspPlaying) {
+    } else if (this.hampPlaying) {
       dom.statusDot.className = 'status-dot connected';
       dom.statusText.textContent = 'Playing';
     } else {

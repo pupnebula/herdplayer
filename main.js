@@ -193,6 +193,23 @@ function handleLocalFile(request) {
   });
 }
 
+// Pattern file access — renderer can list and read files from the patterns/ folder.
+// Only basenames are accepted to prevent path traversal.
+ipcMain.handle('list-patterns', () => {
+  const dir = path.join(__dirname, 'patterns');
+  try {
+    return fs.readdirSync(dir)
+      .filter(f => f.endsWith('.funscript'))
+      .sort();
+  } catch { return []; }
+});
+
+ipcMain.handle('read-pattern', (_event, filename) => {
+  const safe = path.basename(filename);
+  const filePath = path.join(__dirname, 'patterns', safe);
+  try { return fs.readFileSync(filePath, 'utf8'); } catch { return null; }
+});
+
 app.whenReady().then(() => {
   protocol.handle('localfile', handleLocalFile);
   createWindows();

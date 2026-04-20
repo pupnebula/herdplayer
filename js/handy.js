@@ -439,19 +439,19 @@ export class HandyManager {
     );
   }
 
-  async hspPlayAll(loop = true) {
+  async hspPlayAll(loop = true, playbackRate = 1.0) {
     const serverTime = this.hspReadyDevices[0]?.getEstimatedServerTime();
     if (serverTime == null) return;
     await Promise.allSettled(
-      this.hspReadyDevices.map(d => d.hspPlay(d.getEstimatedServerTime(), 0, loop))
+      this.hspReadyDevices.map(d => d.hspPlay(d.getEstimatedServerTime(), 0, loop, playbackRate))
     );
   }
 
   // Combined add+play in one request — only use when points.length <= 100
-  async hspPlayAllWithAdd(points, flush, tailIndex, loop = true) {
+  async hspPlayAllWithAdd(points, flush, tailIndex, loop = true, playbackRate = 1.0) {
     await Promise.allSettled(
       this.hspReadyDevices.map(d =>
-        d.hspPlayWithAdd(d.getEstimatedServerTime(), points, flush, tailIndex, 0, loop)
+        d.hspPlayWithAdd(d.getEstimatedServerTime(), points, flush, tailIndex, 0, loop, playbackRate)
       )
     );
   }
@@ -460,6 +460,28 @@ export class HandyManager {
     await Promise.allSettled(
       this.hspReadyDevices.map(d => d.hspStop())
     );
+  }
+
+  // Opens an SSE stream for device events. Returns the EventSource so the
+  // caller can close it. Authentication is passed as a query param because
+  // SSE does not support custom headers.
+  openSSE(events, onEvent) {
+    const device = this.hspReadyDevices[0] ?? this.connectedDevices[0];
+    if (!device || !this.apiKey) return null;
+
+    const params = new URLSearchParams({
+      apikey: this.apiKey,
+      ck: device.connectionKey,
+      events: events.join(','),
+    });
+    const es = new EventSource(`${API_BASE}/sse?${params}`);
+    for (const evt of events) {
+      es.addEventListener(evt, (e) => {
+        try { onEvent(evt, JSON.parse(e.data)); }
+        catch { onEvent(evt, {}); }
+      });
+    }
+    return es;
   }
 
   // Hosting API (device-independent)
