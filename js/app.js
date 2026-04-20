@@ -446,6 +446,9 @@ class App {
         case 'hamp-start-devices':
           this.hampStartDevices(msg.tag, msg.deviceIndices, msg.velocity, msg.strokeMin, msg.strokeMax);
           break;
+        case 'hamp-update-devices':
+          this.hampUpdateDevices(msg.deviceIndices, msg.velocity, msg.strokeMin, msg.strokeMax);
+          break;
         case 'hamp-stop-devices':
           this.hampStopDevices(msg.tag, msg.deviceIndices);
           break;
@@ -528,12 +531,25 @@ class App {
       .filter(d => d?.hampReady);
     if (devices.length === 0) return;
     try {
-      await Promise.allSettled(devices.map(d => d.hampSetVelocity(velocity)));
-      await Promise.allSettled(devices.map(d => d.hampSetStroke(strokeMin, strokeMax)));
+      await Promise.allSettled(devices.map(d => d.hampSetVelocity(velocity / 100)));
+      await Promise.allSettled(devices.map(d => d.hampSetStroke(strokeMin / 100, strokeMax / 100)));
       await Promise.allSettled(devices.map(d => d.hampStart()));
       window.electronAPI.sendToManual({ type: 'hamp-playing-devices', tag, playing: true });
     } catch (err) {
       this.toast(`HAMP start error: ${err.message}`, 'error');
+    }
+  }
+
+  async hampUpdateDevices(deviceIndices, velocity, strokeMin, strokeMax) {
+    const devices = deviceIndices
+      .map(i => this.manager.devices[i])
+      .filter(d => d?.hampReady);
+    if (devices.length === 0) return;
+    try {
+      await Promise.allSettled(devices.map(d => d.hampSetVelocity(velocity / 100)));
+      await Promise.allSettled(devices.map(d => d.hampSetStroke(strokeMin / 100, strokeMax / 100)));
+    } catch (err) {
+      this.toast(`HAMP update error: ${err.message}`, 'error');
     }
   }
 

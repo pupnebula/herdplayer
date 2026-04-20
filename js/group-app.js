@@ -35,7 +35,7 @@ export class GroupApp {
     dom.velocitySlider.addEventListener('input', () => {
       this.clearActivePreset();
       dom.velocityValue.textContent = `${dom.velocitySlider.value}%`;
-      if (this.isPlayingOnCurrentGroup()) this._doStart();
+      if (this.isPlayingOnCurrentGroup()) this._doUpdate();
     });
 
     dom.strokeMinSlider.addEventListener('input', () => {
@@ -44,7 +44,7 @@ export class GroupApp {
       const max = parseInt(dom.strokeMaxSlider.value, 10);
       if (min >= max) { min = max - 1; dom.strokeMinSlider.value = min; }
       dom.strokeMinValue.textContent = `${min}%`;
-      if (this.isPlayingOnCurrentGroup()) this._doStart();
+      if (this.isPlayingOnCurrentGroup()) this._doUpdate();
     });
 
     dom.strokeMaxSlider.addEventListener('input', () => {
@@ -53,7 +53,7 @@ export class GroupApp {
       let max = parseInt(dom.strokeMaxSlider.value, 10);
       if (max <= min) { max = min + 1; dom.strokeMaxSlider.value = max; }
       dom.strokeMaxValue.textContent = `${max}%`;
-      if (this.isPlayingOnCurrentGroup()) this._doStart();
+      if (this.isPlayingOnCurrentGroup()) this._doUpdate();
     });
 
     for (const btn of document.querySelectorAll('.preset-btn')) {
@@ -77,11 +77,22 @@ export class GroupApp {
   // Stop the active group.
   _doStop() {}
 
+  // Update parameters for the active group while it is already playing.
+  // Default: re-issue start (subclass should override for protocols where
+  // re-starting causes a restart of the motion cycle).
+  _doUpdate() { this._doStart(); }
+
   // Start a single device that was just moved into a playing group.
   _doMoveStart(deviceIndex, groupId, settings) {}
 
   // Stop a single device that was just moved into a non-playing group.
   _doMoveStop(deviceIndex, groupId) {}
+
+  // Update params for a single device that was already playing and is
+  // moving between two playing groups. Default: re-issue start.
+  _doMoveUpdate(deviceIndex, groupId, settings) {
+    this._doMoveStart(deviceIndex, groupId, settings);
+  }
 
   // Override to return a status string when the panel is globally inactive
   // (e.g. wrong mode selected). Return null to use the default flow.
@@ -126,14 +137,29 @@ export class GroupApp {
   }
 
   moveDevice(deviceIndex, toGroupId) {
+    const fromGroupId = this.deviceGroup.get(deviceIndex);
+    const wasPlaying  = this.groupPlaying.get(fromGroupId) ?? false;
+
+    // If moving into the currently-active group, the live slider values may
+    // differ from the last saved snapshot — sync first so we use them.
+    if (toGroupId === this.activeGroupId) {
+      this.saveSliderStateToGroup(this.activeGroupId);
+    }
+
     this.deviceGroup.set(deviceIndex, toGroupId);
     this.renderCards();
     const device = this._getDevice(deviceIndex);
     if (!device?.ready) return;
+
     const s = this.groupSettings.get(toGroupId) ?? { velocity: 0, strokeMin: 0, strokeMax: 100 };
-    if (this.groupPlaying.get(toGroupId)) {
+    const nowPlaying = this.groupPlaying.get(toGroupId) ?? false;
+
+    if (nowPlaying && wasPlaying) {
+      // Already in motion — just push new params, don't re-issue start.
+      this._doMoveUpdate(deviceIndex, toGroupId, s);
+    } else if (nowPlaying) {
       this._doMoveStart(deviceIndex, toGroupId, s);
-    } else {
+    } else if (wasPlaying) {
       this._doMoveStop(deviceIndex, toGroupId);
     }
   }

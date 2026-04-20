@@ -62,6 +62,17 @@ class ManualApp extends GroupApp {
     });
   }
 
+  _doUpdate() {
+    window.electronAPI.sendFromManual({
+      type: 'hamp-update-devices',
+      tag: this.activeGroupId,
+      deviceIndices: this.getReadyIndicesForGroup(this.activeGroupId),
+      velocity: parseInt(this.dom.velocitySlider.value, 10),
+      strokeMin: parseInt(this.dom.strokeMinSlider.value, 10),
+      strokeMax: parseInt(this.dom.strokeMaxSlider.value, 10),
+    });
+  }
+
   _doMoveStart(deviceIndex, groupId, settings) {
     window.electronAPI.sendFromManual({
       type: 'hamp-start-devices',
@@ -78,6 +89,17 @@ class ManualApp extends GroupApp {
       type: 'hamp-stop-devices',
       tag: groupId,
       deviceIndices: [deviceIndex],
+    });
+  }
+
+  _doMoveUpdate(deviceIndex, groupId, settings) {
+    window.electronAPI.sendFromManual({
+      type: 'hamp-update-devices',
+      tag: groupId,
+      deviceIndices: [deviceIndex],
+      velocity: settings.velocity,
+      strokeMin: settings.strokeMin,
+      strokeMax: settings.strokeMax,
     });
   }
 
