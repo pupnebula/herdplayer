@@ -1,3 +1,5 @@
+import { getAccentRgb } from './prefs-app.js';
+
 export class Funscript {
   constructor() {
     this.actions = [];     // [{at: ms, pos: 0-100}]
@@ -125,6 +127,7 @@ export function renderTimeline(canvas, funscript, videoDuration) {
 
   const toX = (ms) => (ms / totalMs) * w;
   const toY = (pos) => pad + (1 - pos / 100) * (h - pad * 2);
+  const accentRgb = getAccentRgb();
 
   // Draw speed-colored filled area under the position curve
   for (let i = 0; i < actions.length - 1; i++) {
@@ -136,7 +139,7 @@ export function renderTimeline(canvas, funscript, videoDuration) {
     const x1 = toX(a.at), y1 = toY(a.pos);
     const x2 = toX(b.at), y2 = toY(b.pos);
     const speed = (Math.abs(b.pos - a.pos) / dt) * 1000;
-    const color = speedToColor(speed);
+    const color = speedToColor(speed, accentRgb);
 
     // Filled region: line segment → bottom
     const grad = ctx.createLinearGradient(0, Math.min(y1, y2), 0, h);
@@ -166,21 +169,21 @@ export function renderTimeline(canvas, funscript, videoDuration) {
     const speed = (Math.abs(b.pos - a.pos) / dt) * 1000;
 
     ctx.beginPath();
-    ctx.strokeStyle = speedToColor(speed);
+    ctx.strokeStyle = speedToColor(speed, accentRgb);
     ctx.moveTo(toX(a.at), toY(a.pos));
     ctx.lineTo(toX(b.at), toY(b.pos));
     ctx.stroke();
   }
 }
 
-// Maps speed to a color: slow teal → mid amber → fast red
-function speedToColor(speed) {
+// Maps speed to a color: slow teal → selected accent → fast red
+function speedToColor(speed, accentRgb) {
   const t = Math.min(speed / 400, 1);
 
-  // Three-stop gradient: teal (0) → amber (0.5) → red (1)
+  // Three-stop gradient: teal (0) → selected accent (0.5) → red (1)
   const stops = [
     [90, 180, 160],  // teal
-    [232, 134, 58],  // amber (accent)
+    accentRgb,
     [220, 60, 60],   // red
   ];
 

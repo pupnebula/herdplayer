@@ -70,7 +70,7 @@ The video plays in a separate window. Hit play/pause/seek as normal — the conn
 
 #### Timeline
 
-The waveform across the bottom of the window is the loaded script, colored by stroke speed (teal = slow, amber = medium, red = fast). Click anywhere on it to seek; hover to preview the time.
+The waveform across the bottom of the window is the loaded script, colored by stroke speed (teal = slow, your selected accent = medium, red = fast). Click anywhere on it to seek; hover to preview the time.
 
 ### Manual mode (HAMP)
 

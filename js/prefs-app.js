@@ -73,10 +73,10 @@ const DEFAULTS = {
 const TEXT_SIZE_PX = { sm: 12, md: 14, lg: 16, xl: 18 };
 
 const ACCENTS = {
-  orange: { hex: '#e8863a', hover: '#f09550', dim: 'rgba(232,134,58,0.2)',  subtle: 'rgba(232,134,58,0.08)'  },
-  green:  { hex: '#4cc68a', hover: '#6ed4a0', dim: 'rgba(76,198,138,0.2)',  subtle: 'rgba(76,198,138,0.08)'  },
-  blue:   { hex: '#5b9df0', hover: '#7eb1f3', dim: 'rgba(91,157,240,0.2)',  subtle: 'rgba(91,157,240,0.08)'  },
-  purple: { hex: '#c87df0', hover: '#d597f3', dim: 'rgba(200,125,240,0.2)', subtle: 'rgba(200,125,240,0.08)' },
+  orange: { hex: '#e8863a', hover: '#f09550', rgb: [232, 134, 58] },
+  green:  { hex: '#4cc68a', hover: '#6ed4a0', rgb: [76, 198, 138] },
+  blue:   { hex: '#5b9df0', hover: '#7eb1f3', rgb: [91, 157, 240] },
+  purple: { hex: '#c87df0', hover: '#d597f3', rgb: [200, 125, 240] },
 };
 
 const SECTIONS = [
@@ -130,8 +130,9 @@ function applyPrefs() {
   const a = ACCENTS[prefs.accent] || ACCENTS.orange;
   root.style.setProperty('--accent',         a.hex);
   root.style.setProperty('--accent-hover',   a.hover);
-  root.style.setProperty('--accent-dim',     a.dim);
-  root.style.setProperty('--accent-subtle',  a.subtle);
+  root.style.setProperty('--accent-rgb',     a.rgb.join(', '));
+  root.style.setProperty('--accent-dim',     `rgba(${a.rgb.join(', ')}, 0.2)`);
+  root.style.setProperty('--accent-subtle',  `rgba(${a.rgb.join(', ')}, 0.08)`);
 
   document.body.classList.toggle('compact-density', !!prefs.compactDensity);
   document.body.classList.toggle('reduce-motion',   !!prefs.reduceMotion);
@@ -720,6 +721,10 @@ export function getPrefs() {
 
 export function getPref(key) {
   return prefs[key];
+}
+
+export function getAccentRgb() {
+  return [...(ACCENTS[prefs.accent] || ACCENTS.orange).rgb];
 }
 
 export function getKeybinds() {

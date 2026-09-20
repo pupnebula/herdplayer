@@ -1,11 +1,13 @@
+import { getAccentRgb, onPrefChange } from './prefs-app.js';
+
 const TARGET_PER_PATTERN_MS = 8000;
 
 // ── Canvas rendering utilities ───────────────────────────────────────────────
 
-// Mirrors speedToColor from funscript.js — teal → amber → red
-function speedToColor(speed) {
+// Mirrors speedToColor from funscript.js — teal → selected accent → red
+function speedToColor(speed, accentRgb) {
   const t = Math.min(speed / 400, 1);
-  const stops = [[90, 180, 160], [232, 134, 58], [220, 60, 60]];
+  const stops = [[90, 180, 160], accentRgb, [220, 60, 60]];
   const [s0, s1] = t < 0.5 ? [stops[0], stops[1]] : [stops[1], stops[2]];
   const u = t < 0.5 ? t * 2 : (t - 0.5) * 2;
   return `rgb(${Math.round(s0[0]+(s1[0]-s0[0])*u)},${Math.round(s0[1]+(s1[1]-s0[1])*u)},${Math.round(s0[2]+(s1[2]-s0[2])*u)})`;
@@ -30,6 +32,7 @@ function drawWaveform(canvas, actions) {
   const pad      = 2;
   const duration = actions[actions.length - 1].at;
   if (duration <= 0) return;
+  const accentRgb = getAccentRgb();
 
   const toX = ms  => (ms  / duration)  * w;
   const toY = pos => pad + (1 - pos / 100) * (h - pad * 2);
@@ -43,7 +46,7 @@ function drawWaveform(canvas, actions) {
     if (dt <= 0) continue;
 
     const speed = (Math.abs(b.pos - a.pos) / dt) * 1000;
-    const color = speedToColor(speed);
+    const color = speedToColor(speed, accentRgb);
     const x1 = toX(a.at), y1 = toY(a.pos);
     const x2 = toX(b.at), y2 = toY(b.pos);
 
@@ -67,7 +70,7 @@ function drawWaveform(canvas, actions) {
     const dt = b.at - a.at;
     if (dt <= 0) continue;
     const speed = (Math.abs(b.pos - a.pos) / dt) * 1000;
-    ctx.strokeStyle = speedToColor(speed);
+    ctx.strokeStyle = speedToColor(speed, accentRgb);
     ctx.beginPath();
     ctx.moveTo(toX(a.at), toY(a.pos));
     ctx.lineTo(toX(b.at), toY(b.pos));
@@ -141,6 +144,9 @@ class QueueApp {
     this.initIPC();
     this.loadPatterns();
     window.addEventListener('resize', () => this.scheduleRedraw());
+    onPrefChange((key) => {
+      if (key === 'accent') this.scheduleRedraw();
+    });
   }
 
   // ── Pattern loading ────────────────────────────────────────────────────────

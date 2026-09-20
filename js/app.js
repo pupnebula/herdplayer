@@ -411,7 +411,7 @@ class App {
 
       // Upload to hosting API
       this.dom.scriptUploadStatus.textContent = '(uploading...)';
-      this.dom.scriptUploadStatus.style.color = '#e87a14';
+      this.dom.scriptUploadStatus.style.color = 'var(--accent)';
       try {
         this.scriptHostUrl = await this.manager.uploadScript(file);
         this.dom.scriptUploadStatus.textContent = '(hosted)';
@@ -848,6 +848,7 @@ class App {
       if (key === 'syncInterval' && this.syncTimerId) {
         this.startSyncTimer();
       }
+      if (key === 'accent') this.redrawTimeline();
     });
   }
 
