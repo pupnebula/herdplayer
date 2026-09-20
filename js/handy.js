@@ -376,6 +376,18 @@ export class HandyDevice {
     return data;
   }
 
+  async hspSetPlaybackRate(playbackRate) {
+    if (!Number.isFinite(playbackRate) || playbackRate <= 0) {
+      throw new RangeError('HSP playback rate must be greater than zero');
+    }
+    const data = await this.request('PUT', '/hsp/playbackrate', {
+      playback_rate: playbackRate,
+    });
+    this.captureHspState(data.result);
+    if (this.hspStream) this.hspStream.playbackRate = playbackRate;
+    return data;
+  }
+
   hspMaxPoints() {
     const maxPoints = Math.floor(Number(this.hspState?.max_points));
     if (!Number.isFinite(maxPoints) || maxPoints < 2) {
@@ -888,6 +900,14 @@ export class HandyManager {
       'HSP stream append',
       devices,
       d => d.hspAppendStream(points)
+    );
+  }
+
+  async hspSetPlaybackRateAll(playbackRate, devices = this.hspReadyDevices) {
+    return this.broadcast(
+      'HSP playback rate update',
+      devices,
+      d => d.hspSetPlaybackRate(playbackRate)
     );
   }
 

@@ -405,3 +405,24 @@ test('reconnect resumes from the last confirmed current point instead of the sen
   assert.equal(addCalls.at(-1).body.points[0].x, 4);
   assert.equal(device.hspStream.nextCursor, 14);
 });
+
+test('live HSP speed changes use playbackrate without restarting playback', async (t) => {
+  let request;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    request = {
+      path: new URL(url).pathname.replace('/api/handy-rest/v3', ''),
+      body: JSON.parse(options.body),
+    };
+    return jsonResponse({ result: hspState({ playback_rate: 1.7, current_time: 4321 }) });
+  });
+  const device = new HandyDevice('api-key', 'device');
+  device.hspStream = { playbackRate: 1, active: true };
+
+  await device.hspSetPlaybackRate(1.7);
+
+  assert.equal(request.path, '/hsp/playbackrate');
+  assert.deepEqual(request.body, { playback_rate: 1.7 });
+  assert.equal(Object.hasOwn(request.body, 'start_time'), false);
+  assert.equal(device.hspState.current_time, 4321);
+  assert.equal(device.hspStream.playbackRate, 1.7);
+});

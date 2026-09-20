@@ -1003,9 +1003,12 @@ class App {
   async hspSetRate(rate) {
     if (!this.manager.anyHspReady || !this.hspPlaying) return;
     try {
-      const summary = await this.manager.hspPlayAll(true, rate);
-      this.markProtocolActive('hsp', summary);
-      this.reportPartialFailure(summary, 'Rate change');
+      const devices = [...this.activeProtocolDevices.hsp]
+        .filter(device => device?.hspReady);
+      if (devices.length === 0) return;
+      const summary = await this.manager.hspSetPlaybackRateAll(rate, devices);
+      if (summary.successCount > 0) this.hspPlaybackRate = rate;
+      this.reportPartialFailure(summary, 'Rate change', devices.length);
     } catch (err) {
       this.toast(`Rate change error: ${err.message}`, 'error');
     }
@@ -1746,7 +1749,7 @@ class App {
             });
           }
           const deviceIndex = this.manager.devices.indexOf(device);
-          this.activeProtocolDevices.hsp.add(deviceIndex);
+          this.activeProtocolDevices.hsp.add(device);
           window.electronAPI.sendToManual({
             type: 'hsp-playing',
             deviceIndices: [deviceIndex],

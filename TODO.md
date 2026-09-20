@@ -128,7 +128,7 @@ Acceptance criteria:
   times.
 - Starvation and reconnect tests do not silently skip to the tail of the stream.
 
-### [ ] Use `/hsp/playbackrate` for live Queue speed changes
+### [x] Use `/hsp/playbackrate` for live Queue speed changes
 
 Affected: `HandyDevice`, `HandyManager`, and `App.hspSetRate()`.
 

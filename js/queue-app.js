@@ -1,4 +1,5 @@
 import { getAccentRgb, onPrefChange } from './prefs-app.js';
+import { ScriptTimeCountdown } from './depletion-clock.js';
 
 const TARGET_PER_PATTERN_MS = 8000;
 
@@ -117,6 +118,7 @@ class QueueApp {
     this.looping            = false;   // true when repeating the last pattern
     this.lastPatternName    = null;    // last pattern consumed from queue
     this.depletionTimer     = null;    // setTimeout handle for front-pattern expiry
+    this.depletionClock     = new ScriptTimeCountdown();
     this.patternSlotDurations = [];    // script-time ms for each item in this.queue
     this.bufferEndScriptMs  = 0;       // total script-time ms currently in device buffer
 
@@ -267,13 +269,33 @@ class QueueApp {
     this.cancelDepletion();
     if (!this.patternSlotDurations.length) return;
 
-    const realMs = this.patternSlotDurations[0] / this.playbackRate;
-    this.depletionTimer = setTimeout(() => this.onFrontPatternDepleted(), realMs);
+    this.depletionClock.start(
+      this.patternSlotDurations[0],
+      this.playbackRate,
+      performance.now(),
+    );
+    this.armDepletionTimer();
+  }
+
+  armDepletionTimer() {
+    clearTimeout(this.depletionTimer);
+    this.depletionTimer = setTimeout(
+      () => this.onFrontPatternDepleted(),
+      this.depletionClock.remainingRealMs,
+    );
+  }
+
+  applyPlaybackRate(playbackRate) {
+    this.playbackRate = playbackRate;
+    if (!this.playing || !this.depletionClock.running) return;
+    this.depletionClock.setPlaybackRate(playbackRate, performance.now());
+    this.armDepletionTimer();
   }
 
   cancelDepletion() {
     clearTimeout(this.depletionTimer);
     this.depletionTimer = null;
+    this.depletionClock.stop();
   }
 
   onFrontPatternDepleted() {
@@ -398,15 +420,16 @@ class QueueApp {
     dom.startBtn.addEventListener('click', () => this.startQueue());
 
     dom.rateSlider.addEventListener('input', () => {
-      this.playbackRate = parseFloat(dom.rateSlider.value);
-      dom.rateValue.textContent = `${this.playbackRate.toFixed(1)}×`;
+      const requestedRate = parseFloat(dom.rateSlider.value);
+      dom.rateValue.textContent = `${requestedRate.toFixed(1)}×`;
       if (this.playing) {
-        // Reschedule depletion timer with the new rate.
-        this.scheduleDepletion();
         clearTimeout(this.rateDebounceTimer);
         this.rateDebounceTimer = setTimeout(() => {
-          window.electronAPI.sendFromManual({ type: 'queue-rate-change', rate: this.playbackRate });
+          this.applyPlaybackRate(requestedRate);
+          window.electronAPI.sendFromManual({ type: 'queue-rate-change', rate: requestedRate });
         }, 150);
+      } else {
+        this.applyPlaybackRate(requestedRate);
       }
     });
   }
