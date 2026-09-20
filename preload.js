@@ -47,4 +47,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   prefsRevealPath:   (p)      => ipcRenderer.invoke('prefs:reveal-path', p),
   prefsChooseFolder: ()       => ipcRenderer.invoke('prefs:choose-folder'),
   prefsConfirm:      (opts)   => ipcRenderer.invoke('prefs:confirm', opts),
+
+  getMediaDiagnostics: () => ipcRenderer.invoke('media:get-diagnostics'),
 });

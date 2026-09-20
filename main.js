@@ -342,6 +342,26 @@ ipcMain.handle('prefs:confirm', async (_event, opts) => {
   return result.response === 1;
 });
 
+ipcMain.handle('media:get-diagnostics', async () => {
+  let gpuInfo = null;
+  try {
+    gpuInfo = await app.getGPUInfo('basic');
+  } catch (err) {
+    gpuInfo = { error: err.message };
+  }
+
+  return {
+    appVersion: app.getVersion(),
+    electronVersion: process.versions.electron,
+    chromiumVersion: process.versions.chrome,
+    platform: process.platform,
+    architecture: process.arch,
+    hardwareAcceleration: app.isHardwareAccelerationEnabled(),
+    gpuFeatureStatus: app.getGPUFeatureStatus(),
+    gpuInfo,
+  };
+});
+
 app.whenReady().then(async () => {
   const result = await verifyToken();
   if (!result.ok) {

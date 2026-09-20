@@ -1,4 +1,5 @@
 import { Funscript } from './funscript.js';
+import { describeMediaError, getPlaybackQuality, sourceLabel } from './media-diagnostics.js';
 
 class VideoApp {
   constructor() {
@@ -6,11 +7,14 @@ class VideoApp {
     this.offset = 0;
     this.isPlaying = false;
     this.animFrameId = null;
+    this.mediaName = 'video';
+    this.systemDiagnostics = null;
     this.dom = {};
     this.initDOM();
     this.initEvents();
     this.initIPC();
     this.initControlsAutoHide();
+    this.loadSystemDiagnostics();
   }
 
   initDOM() {
@@ -47,6 +51,10 @@ class VideoApp {
     dom.video.addEventListener('ended', () => this.onVideoEnded());
     dom.video.addEventListener('loadedmetadata', () => this.onVideoLoaded());
     dom.video.addEventListener('seeked', () => this.onVideoSeeked());
+    dom.video.addEventListener('error', () => this.onVideoError());
+    dom.video.addEventListener('waiting', () => this.reportMediaStatus('buffering'));
+    dom.video.addEventListener('stalled', () => this.reportMediaStatus('stalled'));
+    dom.video.addEventListener('playing', () => this.reportMediaStatus('playing'));
 
     dom.seekBar.addEventListener('input', () => {
       dom.video.currentTime = (dom.seekBar.value / 1000) * dom.video.duration;
@@ -128,7 +136,7 @@ class VideoApp {
     window.electronAPI.onFromControl((msg) => {
       switch (msg.type) {
         case 'load-video':
-          this.loadVideo(msg.src);
+          this.loadVideo(msg.src, msg.name);
           break;
         case 'load-script': {
           const fs = new Funscript();
@@ -162,7 +170,7 @@ class VideoApp {
         const src = file.path
           ? 'localfile:///' + file.path.replace(/\\/g, '/')
           : URL.createObjectURL(file);
-        this.loadVideo(src);
+        this.loadVideo(src, file.name);
         window.electronAPI.sendToControl({ type: 'video-dropped', name: file.name });
       } else if (['funscript', 'json', 'csv'].includes(ext)) {
         file.text().then(text => {
@@ -174,8 +182,9 @@ class VideoApp {
 
   // --- Video loading ---
 
-  loadVideo(src) {
+  loadVideo(src, name) {
     const { video } = this.dom;
+    this.mediaName = name || sourceLabel(src);
     video.pause();
     video.removeAttribute('src');
     video.load();
@@ -224,11 +233,54 @@ class VideoApp {
 
   onVideoLoaded() {
     this.updateTimeDisplay();
-    window.electronAPI.sendToControl({ type: 'loaded', duration: this.dom.video.duration });
+    window.electronAPI.sendToControl({
+      type: 'loaded',
+      duration: this.dom.video.duration,
+      diagnostics: this.collectMediaDiagnostics(),
+    });
   }
 
   onVideoSeeked() {
     window.electronAPI.sendToControl({ type: 'seeked', currentTime: this.dom.video.currentTime });
+  }
+
+  async loadSystemDiagnostics() {
+    try {
+      this.systemDiagnostics = await window.electronAPI.getMediaDiagnostics();
+    } catch (err) {
+      this.systemDiagnostics = { error: err.message };
+    }
+  }
+
+  collectMediaDiagnostics() {
+    return {
+      source: this.mediaName,
+      readyState: this.dom.video.readyState,
+      networkState: this.dom.video.networkState,
+      duration: Number.isFinite(this.dom.video.duration) ? this.dom.video.duration : 0,
+      quality: getPlaybackQuality(this.dom.video),
+      system: this.systemDiagnostics,
+    };
+  }
+
+  reportMediaStatus(status) {
+    window.electronAPI.sendToControl({
+      type: 'media-status',
+      status,
+      diagnostics: this.collectMediaDiagnostics(),
+    });
+  }
+
+  onVideoError() {
+    const error = describeMediaError(this.dom.video.error);
+    const diagnostics = this.collectMediaDiagnostics();
+    console.error('Video playback error', { error, diagnostics });
+    window.electronAPI.sendToControl({
+      type: 'media-error',
+      source: this.mediaName,
+      error,
+      diagnostics,
+    });
   }
 
   updatePlayButton(playing) {

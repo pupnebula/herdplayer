@@ -188,6 +188,7 @@ class App {
         case 'loaded':
           this.videoDuration = msg.duration;
           this.redrawTimeline();
+          if (msg.diagnostics) console.info('Video diagnostics', msg.diagnostics);
           break;
         case 'time-update':
           this.currentTime = msg.currentTime;
@@ -199,6 +200,15 @@ class App {
           break;
         case 'script-dropped':
           this.handleScriptText(msg.text, msg.fileName);
+          break;
+        case 'media-error': {
+          const detail = msg.error?.browserMessage ? ` (${msg.error.browserMessage})` : '';
+          this.toast(`${msg.source || 'Video'}: ${msg.error?.message || 'Playback failed.'}${detail}`, 'error', 9000);
+          console.error('Video playback failed', msg);
+          break;
+        }
+        case 'media-status':
+          if (msg.status === 'stalled') console.warn('Video playback stalled', msg.diagnostics);
           break;
       }
     });
@@ -221,7 +231,7 @@ class App {
     const src = file.path
       ? 'localfile:///' + file.path.replace(/\\/g, '/')
       : URL.createObjectURL(file);
-    window.electronAPI.sendToVideo({ type: 'load-video', src });
+    window.electronAPI.sendToVideo({ type: 'load-video', src, name: file.name });
     this.dom.videoName.textContent = file.name;
     this.dom.videoName.classList.add('loaded');
   }
@@ -229,7 +239,7 @@ class App {
   loadVideoUrl() {
     const url = this.dom.videoUrlInput.value.trim();
     if (!url) return;
-    window.electronAPI.sendToVideo({ type: 'load-video', src: url });
+    window.electronAPI.sendToVideo({ type: 'load-video', src: url, name: url.split('/').pop() || 'Remote video' });
     this.dom.videoName.textContent = url.split('/').pop() || 'Remote video';
     this.dom.videoName.classList.add('loaded');
   }
@@ -383,7 +393,7 @@ class App {
     const src = video.path
       ? 'localfile:///' + video.path.replace(/\\/g, '/')
       : URL.createObjectURL(video);
-    window.electronAPI.sendToVideo({ type: 'load-video', src });
+    window.electronAPI.sendToVideo({ type: 'load-video', src, name: video.name });
     this.dom.videoName.textContent = video.name;
     this.dom.videoName.classList.add('loaded');
 
@@ -1782,7 +1792,7 @@ class App {
 
   // --- Toast ---
 
-  toast(message, type = 'info') {
+  toast(message, type = 'info', durationMs = 3500) {
     const container = document.getElementById('toast-container');
     const el = document.createElement('div');
     el.className = `toast ${type}`;
@@ -1791,7 +1801,7 @@ class App {
     setTimeout(() => {
       el.classList.add('fade-out');
       el.addEventListener('animationend', () => el.remove());
-    }, 3500);
+    }, durationMs);
   }
 }
 
