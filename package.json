@@ -42,7 +42,8 @@
         "filter": [
           "LICENSE.GPL",
           "Copyright",
-          "NOTICE.txt"
+          "NOTICE.txt",
+          "herdplayer-overlay.lua"
         ]
       }
     ],

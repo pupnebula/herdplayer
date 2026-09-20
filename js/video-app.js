@@ -156,6 +156,9 @@ class VideoApp {
         case 'set-offset':
           this.offset = msg.offset;
           break;
+        case 'set-accent':
+          this.setAccent(msg.rgb);
+          break;
         case 'seek':
           this.dom.video.currentTime = msg.currentTime;
           break;
@@ -164,6 +167,14 @@ class VideoApp {
           break;
       }
     });
+  }
+
+  setAccent(rgb) {
+    if (!Array.isArray(rgb) || rgb.length !== 3 || rgb.some(value => !Number.isFinite(value))) return;
+    const [red, green, blue] = rgb.map(value => Math.max(0, Math.min(255, Math.round(value))));
+    const root = document.documentElement;
+    root.style.setProperty('--accent', `rgb(${red}, ${green}, ${blue})`);
+    root.style.setProperty('--accent-dim', `rgba(${red}, ${green}, ${blue}, 0.2)`);
   }
 
   handleDrop(files) {

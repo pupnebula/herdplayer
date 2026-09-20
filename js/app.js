@@ -1,6 +1,6 @@
 import { HandyManager, HandyDevice, DeviceMode } from './handy.js';
 import { Funscript, renderTimeline } from './funscript.js';
-import { getPref, onPrefChange, togglePref } from './prefs-app.js';
+import { getAccentRgb, getPref, onPrefChange, togglePref } from './prefs-app.js';
 
 const MODE_INFO = {
   hssp: {
@@ -1144,13 +1144,18 @@ class App {
     }
 
     this.initModeInfo();
+    window.electronAPI.sendToVideo({ type: 'set-offset', offset: this.offset });
+    window.electronAPI.sendToVideo({ type: 'set-accent', rgb: getAccentRgb() });
 
     // Live updates: re-arm the sync timer if its interval changes mid-session.
     onPrefChange((key) => {
       if (key === 'syncInterval' && this.syncTimerId) {
         this.startSyncTimer();
       }
-      if (key === 'accent') this.redrawTimeline();
+      if (key === 'accent') {
+        this.redrawTimeline();
+        window.electronAPI.sendToVideo({ type: 'set-accent', rgb: getAccentRgb() });
+      }
     });
   }
 

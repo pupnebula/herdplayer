@@ -68,6 +68,8 @@ The built-in Chromium player is the default. For formats/codecs it cannot decode
 
 The mpv engine runs in its own player window with safe hardware decoding, `gpu-next`, HDR display hints, and automatic tone mapping. Playback time, pause, seek, duration, decoder, and video metadata return to HerdPlayer through mpv's JSON IPC so Handy synchronization continues to use the active player clock. If mpv cannot start for a selected video, HerdPlayer reports the reason and falls back to Chromium for that session. Actual HDR output still depends on the video, display, Windows HDR setting, GPU driver, and mpv build.
 
+The funscript stroke indicator is rendered inside mpv using a small packaged OSD script. Funscript points are transferred once in bounded chunks; interpolation then runs against mpv's local playback clock at 30 FPS and skips redraws when the indicator remains on the same pixel.
+
 The bundled mpv build is an unmodified separate GPLv2+ program. Credits, exact revisions, checksums, license text, build details, and source links are included under `vendor/mpv/` and in **Settings → About**. Its source code is not embedded in HerdPlayer's executable.
 
 #### Sync controls

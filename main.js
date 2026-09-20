@@ -238,10 +238,14 @@ function createWindows() {
 // The manual panel lives inside the control window now and is wired
 // in-process, so no 'to-manual' / 'from-manual' channels are needed.
 ipcMain.on('to-video', (_event, msg) => {
-  if (activePlayerBackend === 'mpv' && !mpvFallbackActive
-      && ['load-video', 'pause', 'seek'].includes(msg?.type)) {
-    void handleMpvCommand(msg);
-    return;
+  if (activePlayerBackend === 'mpv' && !mpvFallbackActive) {
+    if (['load-video', 'pause', 'seek'].includes(msg?.type)) {
+      void handleMpvCommand(msg);
+      return;
+    }
+    if (['load-script', 'clear-script', 'set-offset', 'set-accent'].includes(msg?.type)) {
+      void handleMpvOverlayCommand(msg);
+    }
   }
   if (videoWindow && !videoWindow.isDestroyed()) {
     videoWindow.webContents.send('from-control', msg);
@@ -255,6 +259,18 @@ ipcMain.on('to-control', (_event, msg) => {
 function sendToControl(msg) {
   if (controlWindow && !controlWindow.isDestroyed()) {
     controlWindow.webContents.send('from-video', msg);
+  }
+}
+
+async function handleMpvOverlayCommand(msg) {
+  if (!mpvController) return;
+  try {
+    if (msg.type === 'load-script') await mpvController.setFunscript(msg.actions);
+    else if (msg.type === 'clear-script') await mpvController.clearFunscript();
+    else if (msg.type === 'set-offset') await mpvController.setFunscriptOffset(msg.offset);
+    else if (msg.type === 'set-accent') await mpvController.setAccent(msg.rgb);
+  } catch (err) {
+    console.warn(`Could not update the mpv stroke indicator: ${err.message}`);
   }
 }
 
@@ -518,10 +534,14 @@ app.whenReady().then(async () => {
   protocol.handle('localfile', handleLocalFile);
   createWindows();
   if (activePlayerBackend === 'mpv') {
+    const overlayScriptPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'mpv', 'herdplayer-overlay.lua')
+      : path.join(__dirname, 'vendor', 'mpv', 'herdplayer-overlay.lua');
     mpvController = new MpvController({
       configuredPath: runtimeConfig.mpvPath,
       resourcesPath: process.resourcesPath,
       geometry: videoWindow?.getBounds(),
+      overlayScriptPath,
     });
     mpvController.on('playback-event', sendToControl);
   }

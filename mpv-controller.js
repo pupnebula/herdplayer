@@ -44,7 +44,7 @@ function resolveMpvExecutable({ configuredPath = '', resourcesPath = '', platfor
   return executableName;
 }
 
-function buildMpvArgs(ipcPath, geometry) {
+function buildMpvArgs(ipcPath, geometry, overlayScriptPath = '') {
   const args = [
     '--idle=yes',
     '--force-window=yes',
@@ -60,6 +60,7 @@ function buildMpvArgs(ipcPath, geometry) {
     '--target-colorspace-hint=yes',
     `--input-ipc-server=${ipcPath}`,
   ];
+  if (overlayScriptPath) args.push(`--script=${overlayScriptPath}`);
   if (geometry && Number.isFinite(geometry.width) && Number.isFinite(geometry.height)) {
     const size = `${Math.max(1, Math.round(geometry.width))}x${Math.max(1, Math.round(geometry.height))}`;
     const position = Number.isFinite(geometry.x) && Number.isFinite(geometry.y)
@@ -84,6 +85,7 @@ class MpvController extends EventEmitter {
     this.spawn = options.spawn || spawn;
     this.connect = options.connect || (ipcPath => net.createConnection(ipcPath));
     this.geometry = options.geometry || null;
+    this.overlayScriptPath = options.overlayScriptPath || '';
     this.child = null;
     this.socket = null;
     this.buffer = '';
@@ -96,6 +98,11 @@ class MpvController extends EventEmitter {
     this.timeUpdateTimer = null;
     this.startupError = null;
     this.expectedExit = false;
+    this.funscriptActions = [];
+    this.funscriptOffset = 0;
+    this.accentRgb = [232, 134, 58];
+    this.overlayGeneration = 0;
+    this.overlaySync = Promise.resolve();
   }
 
   async load(message) {
@@ -117,6 +124,69 @@ class MpvController extends EventEmitter {
     await this.command(['set_property', 'time-pos', Math.max(0, seconds)]);
   }
 
+  setFunscript(actions) {
+    this.funscriptActions = Array.isArray(actions)
+      ? actions
+        .filter(action => Number.isFinite(action?.at) && Number.isFinite(action?.pos))
+        .map(action => ({
+          at: Math.round(action.at),
+          pos: Math.max(0, Math.min(100, Math.round(action.pos))),
+        }))
+      : [];
+    return this.queueOverlaySync();
+  }
+
+  clearFunscript() {
+    this.funscriptActions = [];
+    return this.queueOverlaySync();
+  }
+
+  async setFunscriptOffset(offset) {
+    this.funscriptOffset = Number.isFinite(offset) ? Math.round(offset) : 0;
+    if (this.socket) {
+      await this.command(['script-message', 'herdplayer-offset', String(this.funscriptOffset)]);
+    }
+  }
+
+  async setAccent(rgb) {
+    if (Array.isArray(rgb) && rgb.length === 3 && rgb.every(Number.isFinite)) {
+      this.accentRgb = rgb.map(value => Math.max(0, Math.min(255, Math.round(value))));
+    }
+    if (this.socket) {
+      await this.command(['script-message', 'herdplayer-accent', ...this.accentRgb.map(String)]);
+    }
+  }
+
+  queueOverlaySync() {
+    const generation = ++this.overlayGeneration;
+    if (!this.socket) return Promise.resolve();
+    this.overlaySync = this.overlaySync
+      .catch(() => {})
+      .then(() => this.syncOverlayState(generation));
+    return this.overlaySync;
+  }
+
+  async syncOverlayState(generation = ++this.overlayGeneration) {
+    if (!this.socket || generation !== this.overlayGeneration) return;
+    await this.command(['script-message', 'herdplayer-accent', ...this.accentRgb.map(String)]);
+    await this.command(['script-message', 'herdplayer-offset', String(this.funscriptOffset)]);
+    if (generation !== this.overlayGeneration) return;
+
+    if (this.funscriptActions.length === 0) {
+      await this.command(['script-message', 'herdplayer-clear-script']);
+      return;
+    }
+
+    await this.command(['script-message', 'herdplayer-script-begin']);
+    for (let start = 0; start < this.funscriptActions.length; start += 500) {
+      if (generation !== this.overlayGeneration) return;
+      const chunk = this.funscriptActions.slice(start, start + 500);
+      await this.command(['script-message', 'herdplayer-script-chunk', JSON.stringify(chunk)]);
+    }
+    if (generation !== this.overlayGeneration) return;
+    await this.command(['script-message', 'herdplayer-script-end']);
+  }
+
   async ensureStarted() {
     if (this.child && this.socket && !this.child.killed) return;
 
@@ -131,7 +201,7 @@ class MpvController extends EventEmitter {
 
     this.startupError = null;
     this.expectedExit = false;
-    this.child = this.spawn(executable, buildMpvArgs(ipcPath, this.geometry), {
+    this.child = this.spawn(executable, buildMpvArgs(ipcPath, this.geometry, this.overlayScriptPath), {
       stdio: ['ignore', 'ignore', 'ignore'],
       windowsHide: false,
     });
@@ -143,6 +213,7 @@ class MpvController extends EventEmitter {
       this.attachSocket(this.socket);
       await Promise.all(OBSERVED_PROPERTIES.map((property, index) =>
         this.command(['observe_property', index + 1, property])));
+      await this.syncOverlayState(++this.overlayGeneration);
     } catch (err) {
       this.child?.kill();
       this.child = null;

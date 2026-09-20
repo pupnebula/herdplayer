@@ -20,7 +20,11 @@ test('mpv rejects blob URLs that an external process cannot access', () => {
 });
 
 test('mpv launch enables safe hardware decoding, gpu-next, and HDR tone mapping', () => {
-  const args = buildMpvArgs('test-pipe', { width: 960, height: 540, x: -20, y: 10 });
+  const args = buildMpvArgs(
+    'test-pipe',
+    { width: 960, height: 540, x: -20, y: 10 },
+    'C:\\HerdPlayer\\herdplayer-overlay.lua',
+  );
   assert.ok(args.includes('--hwdec=auto-safe'));
   assert.ok(args.includes('--pause=yes'));
   assert.ok(args.includes('--vo=gpu-next'));
@@ -28,6 +32,7 @@ test('mpv launch enables safe hardware decoding, gpu-next, and HDR tone mapping'
   assert.ok(args.includes('--target-colorspace-hint=yes'));
   assert.ok(args.includes('--geometry=960x540-20+10'));
   assert.ok(args.includes('--input-ipc-server=test-pipe'));
+  assert.ok(args.includes('--script=C:\\HerdPlayer\\herdplayer-overlay.lua'));
 });
 
 test('mpv falls back to PATH when no configured or bundled executable exists', () => {
@@ -64,4 +69,33 @@ test('mpv seek completion reads the authoritative post-seek position', async () 
   await controller.reportSeeked();
 
   assert.deepEqual(events, [{ type: 'seeked', currentTime: 84.5 }]);
+});
+
+test('funscript overlay data is chunked and sent once over mpv IPC', async () => {
+  const controller = new MpvController();
+  const commands = [];
+  controller.socket = { destroyed: false };
+  controller.command = async command => { commands.push(command); };
+  const actions = Array.from({ length: 1001 }, (_, index) => ({ at: index * 100, pos: index % 101 }));
+
+  await controller.setFunscript(actions);
+
+  assert.deepEqual(commands.slice(0, 3), [
+    ['script-message', 'herdplayer-accent', '232', '134', '58'],
+    ['script-message', 'herdplayer-offset', '0'],
+    ['script-message', 'herdplayer-script-begin'],
+  ]);
+  assert.equal(commands.filter(command => command[1] === 'herdplayer-script-chunk').length, 3);
+  assert.deepEqual(commands.at(-1), ['script-message', 'herdplayer-script-end']);
+});
+
+test('clearing a funscript removes the mpv overlay', async () => {
+  const controller = new MpvController();
+  const commands = [];
+  controller.socket = { destroyed: false };
+  controller.command = async command => { commands.push(command); };
+
+  await controller.clearFunscript();
+
+  assert.deepEqual(commands.at(-1), ['script-message', 'herdplayer-clear-script']);
 });
