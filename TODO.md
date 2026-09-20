@@ -97,7 +97,7 @@ Acceptance criteria:
 - Deleting a playing group leaves no device moving under a non-playing UI state.
 - Normal application close performs bounded best-effort stops.
 
-### [ ] Replace bulk HSP loading with capacity-aware streaming
+### [x] Replace bulk HSP loading with capacity-aware streaming
 
 Affected: `HandyDevice.hspAddPoints()`, `HandyManager.setupHSPAll()`, HSP playback
 state in `js/app.js`, and queue management in `js/queue-app.js`.

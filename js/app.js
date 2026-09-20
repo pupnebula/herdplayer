@@ -72,7 +72,10 @@ class App {
     this.mode = 'hssp'; // 'hssp' or 'hsp'
     this.hspPlaying = false;
     this.hspTailIndex = 0;
-    this.hspSSE = null;
+    this.hspSSE = [];
+    this.hspPoints = [];
+    this.hspPlaybackRate = 1.0;
+    this.hspLoop = true;
     this.activeProtocolDevices = {
       hssp: new Set(),
       hamp: new Set(),
@@ -688,26 +691,8 @@ class App {
       .filter(d => d?.hspReady);
     if (devices.length === 0) return;
     try {
-      const tailIndex = points.length - 1;
-      let summary;
-      if (points.length <= 100) {
-        summary = await this.manager.broadcast(
-          'Group HSP add and play',
-          devices,
-          d => d.hspPlayWithAdd(d.getEstimatedServerTime(), points, true, tailIndex, 0, true, 1.0),
-        );
-      } else {
-        const addSummary = await this.manager.broadcast(
-          'Group HSP add points',
-          devices,
-          d => d.hspAddPoints(points, true, tailIndex),
-        );
-        summary = await this.manager.broadcast(
-          'Group HSP play',
-          this.successfulDevices(addSummary),
-          d => d.hspPlay(d.getEstimatedServerTime(), 0, true, 1.0),
-        );
-      }
+      this.openHspSSE();
+      const summary = await this.manager.hspStartStreamAll(points, true, 1.0, devices);
       const succeeded = this.successfulDeviceIndices(summary);
       this.markProtocolActive('hsp', summary);
       if (succeeded.length > 0) {
@@ -931,20 +916,14 @@ class App {
     if (!this.manager.anyHspReady) return;
     const requestedCount = this.manager.hspReadyDevices.length;
     try {
+      this.hspPoints = [...points];
+      this.hspPlaybackRate = playbackRate;
+      this.hspLoop = loop;
       this.hspTailIndex = points.length - 1;
-      let summary;
-      if (points.length <= 100) {
-        // Single request: embed add inside play to reduce latency
-        summary = await this.manager.hspPlayAllWithAdd(points, true, this.hspTailIndex, loop, playbackRate);
-      } else {
-        // Flush old buffer, load new points, then play
-        const addSummary = await this.manager.hspAddPointsAll(points, true, this.hspTailIndex);
-        summary = await this.manager.hspPlayAll(
-          loop,
-          playbackRate,
-          this.successfulDevices(addSummary),
-        );
-      }
+      // Subscribe before playback so a short/high-rate stream cannot cross its
+      // refill threshold before the event connection exists.
+      this.openHspSSE();
+      const summary = await this.manager.hspStartStreamAll(points, loop, playbackRate);
       this.hspPlaying = true;
       this.markProtocolActive('hsp', summary);
       window.electronAPI.sendToManual({
@@ -953,7 +932,6 @@ class App {
         playing: true,
       });
       this.reportPartialFailure(summary, 'HSP start', requestedCount);
-      this.openHspSSE();
     } catch (err) {
       this.toast(`HSP start error: ${err.message}`, 'error');
     }
@@ -977,6 +955,7 @@ class App {
         this.closeHspSSE();
         this.hspPlaying = false;
         this.hspTailIndex = 0;
+        this.hspPoints = [];
       } else {
         this.hspPlaying = true;
         this.toast(
@@ -991,13 +970,34 @@ class App {
 
   openHspSSE() {
     this.closeHspSSE();
-    this.hspSSE = this.manager.openSSE(['hsp_starving', 'hsp_state_changed'], (type, data) => {
-      window.electronAPI.sendToManual({ type: `sse-${type}`, data });
-    });
+    const events = [
+      'hsp_threshold_reached',
+      'hsp_starving',
+      'hsp_paused_on_starving',
+      'hsp_resumed_on_not_starving',
+      'hsp_state_changed',
+    ];
+    this.hspSSE = this.manager.hspReadyDevices
+      .map(device => this.manager.openDeviceSSE(device, events, (type, payload, sourceDevice) => {
+        const state = payload?.data?.data ?? payload?.data ?? payload;
+        sourceDevice.hspHandleStreamEvent(type, state).catch(err => {
+          this.toast(`HSP refill failed for ${sourceDevice.connectionKey}: ${err.message}`, 'error');
+        });
+
+        // Queue mode historically handles hsp_starving. With the deliberate
+        // pause-on-starving policy, expose the paused event under that semantic
+        // name while still forwarding the original event for diagnostics.
+        if (type === 'hsp_paused_on_starving') {
+          window.electronAPI.sendToManual({ type: 'sse-hsp_starving', data: payload });
+        }
+        window.electronAPI.sendToManual({ type: `sse-${type}`, data: payload });
+      }))
+      .filter(Boolean);
   }
 
   closeHspSSE() {
-    if (this.hspSSE) { this.hspSSE.close(); this.hspSSE = null; }
+    for (const source of this.hspSSE ?? []) source.close();
+    this.hspSSE = [];
   }
 
   async hspSetRate(rate) {
@@ -1013,10 +1013,13 @@ class App {
 
   async hspAppend(points) {
     if (!this.manager.anyHspReady || !this.hspPlaying) return;
+    const newTail = this.hspTailIndex + points.length;
+    // Retain the logical stream even when every immediate device refill fails;
+    // each device also queues these points before attempting its API request.
+    this.hspPoints.push(...points);
+    this.hspTailIndex = newTail;
     try {
-      const newTail = this.hspTailIndex + points.length;
-      const summary = await this.manager.hspAddPointsAll(points, false, newTail);
-      this.hspTailIndex = newTail;
+      const summary = await this.manager.hspAppendStreamAll(points);
       this.reportPartialFailure(summary, 'Queue append');
     } catch (err) {
       this.toast(`Queue append failed: ${err.message}`, 'error');
@@ -1728,9 +1731,28 @@ class App {
         }
       } else if (this.mode === 'hsp' || this.mode === 'queue') {
         this.setDeviceRowStatus(rowIndex, 'syncing', 'Setting up HSP...');
+        const resumableStream = device.hspStream?.active === true;
         await device.setMode(DeviceMode.HSP);
         await device.hspSetup();
         device.hspReady = true;
+        if (resumableStream || (this.hspPlaying && this.hspPoints.length > 0)) {
+          this.openHspSSE();
+          if (resumableStream) {
+            await device.hspResumeStreamAfterReconnect();
+          } else {
+            await device.hspStartStream(this.hspPoints, {
+              loop: this.hspLoop,
+              playbackRate: this.hspPlaybackRate,
+            });
+          }
+          const deviceIndex = this.manager.devices.indexOf(device);
+          this.activeProtocolDevices.hsp.add(deviceIndex);
+          window.electronAPI.sendToManual({
+            type: 'hsp-playing',
+            deviceIndices: [deviceIndex],
+            playing: true,
+          });
+        }
         window.electronAPI.sendToManual({ type: 'hsp-ready', ready: this.manager.anyHspReady });
         this.sendDevicesUpdate();
       } else if (this.mode === 'hamp') {

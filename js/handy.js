@@ -81,6 +81,9 @@ export class HandyDevice {
     this.hspReady = false;
     this.hdspReady = false;
     this.info = null;
+    this.hspState = null;
+    this.hspStream = null;
+    this.hspStreamQueue = Promise.resolve();
   }
 
   clearConnectionState() {
@@ -275,60 +278,283 @@ export class HandyDevice {
   // HSP (Handy Streaming Protocol)
 
   async hspSetup() {
-    return this.request('PUT', '/hsp/setup', {
-      stream_id: Math.floor(Math.random() * 1024),
+    const data = await this.request('PUT', '/hsp/setup', {
+      // The documented range starts at 1; zero is not a valid stream id.
+      stream_id: Math.floor(Math.random() * 1023) + 1,
     });
+    this.captureHspState(data.result);
+    return data;
   }
 
-  async hspAddPoints(points, flush = false, tailIndex = null) {
-    const MAX_POINTS = 100;
-    const finalTail = tailIndex ?? points.length - 1;
-    const N = points.length;
-    // baseTail is the stream index of the last point already in the buffer before this call.
-    // For flush=true the stream resets to 0, so baseTail is treated as -1.
-    const baseTail = flush ? -1 : finalTail - N;
+  captureHspState(state) {
+    if (!state || typeof state !== 'object' || Array.isArray(state)) return this.hspState;
+    this.hspState = { ...(this.hspState ?? {}), ...state };
 
-    for (let i = 0; i < N; i += MAX_POINTS) {
-      const chunk = points.slice(i, i + MAX_POINTS);
-      const isLast = i + chunk.length >= N;
-      // For intermediate chunks use the stream index of the chunk's last point;
-      // for the final chunk use the caller-supplied tail.
-      const chunkTail = isLast ? finalTail : baseTail + i + chunk.length;
-
-      await this.request('PUT', '/hsp/add', {
-        flush: i === 0 ? flush : false,
-        points: chunk,
-        tail_point_stream_index: chunkTail,
-      });
+    const stream = this.hspStream;
+    const currentPoint = Number(state.current_point);
+    if (stream && Number.isFinite(currentPoint)) {
+      stream.lastCurrentPoint = Math.max(stream.lastCurrentPoint ?? 0, currentPoint);
     }
+    return this.hspState;
   }
 
-  async hspPlay(serverTime, startTime = 0, loop = true, playbackRate = 1.0) {
-    return this.request('PUT', '/hsp/play', {
+  async hspGetState() {
+    const data = await this.request('GET', '/hsp/state');
+    this.captureHspState(data.result);
+    return data.result;
+  }
+
+  async hspAddPoints(points, flush = false, tailIndex = null, tailThreshold = null) {
+    if (!Array.isArray(points) || points.length === 0) {
+      throw new RangeError('HSP add requires at least one point');
+    }
+    if (points.length > 100) {
+      throw new RangeError('HSP add accepts at most 100 points; use the streaming API for larger inputs');
+    }
+
+    const body = {
+      flush,
+      points,
+      tail_point_stream_index: tailIndex ?? points.length - 1,
+    };
+    if (tailThreshold !== null) body.tail_point_threshold = tailThreshold;
+
+    const data = await this.request('PUT', '/hsp/add', body);
+    this.captureHspState(data.result);
+    return data;
+  }
+
+  async hspPlay(serverTime, startTime = 0, loop = true, playbackRate = 1.0, pauseOnStarving = true) {
+    const data = await this.request('PUT', '/hsp/play', {
       server_time: Math.round(serverTime),
       start_time: startTime,
       loop,
       playback_rate: playbackRate,
+      pause_on_starving: pauseOnStarving,
     });
+    this.captureHspState(data.result);
+    return data;
   }
 
   // Combined add+play in a single request — only valid when points fit in one chunk (≤100)
   async hspPlayWithAdd(serverTime, points, flush, tailIndex, startTime = 0, loop = true, playbackRate = 1.0) {
-    return this.request('PUT', '/hsp/play', {
+    const data = await this.request('PUT', '/hsp/play', {
       server_time: Math.round(serverTime),
       start_time: startTime,
       loop,
       playback_rate: playbackRate,
+      pause_on_starving: true,
       add: {
         flush,
         points,
         tail_point_stream_index: tailIndex,
       },
     });
+    this.captureHspState(data.result);
+    return data;
+  }
+
+  async hspSetThreshold(tailThreshold) {
+    const data = await this.request('PUT', '/hsp/threshold', {
+      tail_point_threshold: tailThreshold,
+    });
+    this.captureHspState(data.result);
+    return data;
+  }
+
+  async hspSetPauseOnStarving(pauseOnStarving) {
+    const data = await this.request('PUT', '/hsp/pause/onstarving', {
+      pause_on_starving: pauseOnStarving,
+    });
+    this.captureHspState(data.result);
+    return data;
+  }
+
+  async hspSetLoop(loop) {
+    const data = await this.request('PUT', '/hsp/loop', { loop });
+    this.captureHspState(data.result);
+    return data;
+  }
+
+  hspMaxPoints() {
+    const maxPoints = Math.floor(Number(this.hspState?.max_points));
+    if (!Number.isFinite(maxPoints) || maxPoints < 2) {
+      throw new HandyResponseError('Handy HSP state did not provide a usable max_points capacity', {
+        path: '/hsp/state',
+        response: this.hspState,
+      });
+    }
+    return maxPoints;
+  }
+
+  hspThresholdForTail(tailIndex, lowWater) {
+    // This is an absolute stream index. Leave lowWater points after it so the
+    // threshold event arrives while a safe reserve is still buffered.
+    return Math.max(1, tailIndex - lowWater);
+  }
+
+  enqueueHspStream(operation) {
+    const queued = this.hspStreamQueue.catch(() => {}).then(operation);
+    this.hspStreamQueue = queued;
+    return queued;
+  }
+
+  async hspStartStream(points, { loop = true, playbackRate = 1.0 } = {}) {
+    if (!Array.isArray(points) || points.length === 0) {
+      throw new RangeError('HSP stream requires at least one point');
+    }
+
+    return this.enqueueHspStream(async () => {
+      if (!this.hspState?.max_points) await this.hspGetState();
+      const maxPoints = this.hspMaxPoints();
+      const lowWater = Math.max(1, Math.min(maxPoints - 1, Math.ceil(maxPoints / 3)));
+      this.hspStream = {
+        points: [...points],
+        nextCursor: 0,
+        sentTail: -1,
+        lastCurrentPoint: 0,
+        maxPoints,
+        lowWater,
+        requestedLoop: loop,
+        playbackRate,
+        active: true,
+      };
+
+      await this.fillHspStreamInitial();
+      return this.hspState;
+    });
+  }
+
+  async fillHspStreamInitial(startCursor = 0) {
+    const stream = this.hspStream;
+    if (!stream?.active) return this.hspState;
+
+    stream.nextCursor = Math.max(0, Math.min(startCursor, stream.points.length - 1));
+    stream.sentTail = stream.nextCursor - 1;
+    const initialCount = Math.min(stream.maxPoints, stream.points.length - stream.nextCursor);
+    let remaining = initialCount;
+    let flush = true;
+
+    while (remaining > 0) {
+      const count = Math.min(100, remaining);
+      const chunk = stream.points.slice(stream.nextCursor, stream.nextCursor + count);
+      const tail = stream.nextCursor + count - 1;
+      remaining -= count;
+      await this.hspAddPoints(
+        chunk,
+        flush,
+        tail,
+        remaining === 0 ? this.hspThresholdForTail(tail, stream.lowWater) : null,
+      );
+      flush = false;
+      stream.nextCursor += count;
+      stream.sentTail = tail;
+    }
+
+    // A device can only loop data that remains in its finite buffer. Longer
+    // streams are looped by restarting them after starvation instead.
+    const deviceCanLoop = stream.requestedLoop && stream.points.length <= stream.maxPoints;
+    await this.hspPlay(
+      this.getEstimatedServerTime(),
+      stream.points[stream.nextCursor - initialCount]?.t ?? 0,
+      deviceCanLoop,
+      stream.playbackRate,
+      true,
+    );
+    return this.hspState;
+  }
+
+  async hspAppendStream(points) {
+    if (!Array.isArray(points) || points.length === 0) return this.hspState;
+    return this.enqueueHspStream(async () => {
+      const stream = this.hspStream;
+      if (!stream?.active) throw new Error('No active HSP stream to append to');
+      stream.points.push(...points);
+      await this.refillHspStream('append', this.hspState);
+      return this.hspState;
+    });
+  }
+
+  async refillHspStream(reason, state = null) {
+    const stream = this.hspStream;
+    if (!stream?.active) return this.hspState;
+    if (state) this.captureHspState(state);
+
+    const pending = stream.points.length - stream.nextCursor;
+    const eventTail = Number(state?.tail_point_stream_index);
+    const capacityEvent = reason === 'hsp_threshold_reached'
+      || reason === 'hsp_starving'
+      || reason === 'hsp_paused_on_starving';
+    // Ignore duplicate, delayed, or pre-flush events. A capacity event is only
+    // authoritative for the exact tail that this session most recently sent.
+    if (capacityEvent && Number.isFinite(eventTail) && eventTail !== stream.sentTail) {
+      return this.hspState;
+    }
+
+    if (pending <= 0) {
+      const starved = reason === 'hsp_starving' || reason === 'hsp_paused_on_starving';
+      if (starved && stream.requestedLoop && stream.points.length > stream.maxPoints) {
+        await this.fillHspStreamInitial(0);
+      }
+      return this.hspState;
+    }
+
+    let safeCount = 0;
+    if (reason === 'hsp_threshold_reached') {
+      // At this absolute threshold at least this many prefix points have been
+      // consumed. Keep one current point plus the low-water reserve untouched.
+      safeCount = Math.max(0, stream.maxPoints - stream.lowWater - 1);
+    } else if (reason === 'hsp_starving' || reason === 'hsp_paused_on_starving') {
+      safeCount = stream.maxPoints;
+    } else {
+      // Outside a threshold/starvation event, only genuinely unused slots are
+      // safe. Never infer that a played prefix can be evicted from stale state.
+      const buffered = Math.max(0, Math.floor(Number(this.hspState?.points) || 0));
+      safeCount = Math.max(0, stream.maxPoints - buffered);
+    }
+
+    let remaining = Math.min(pending, safeCount);
+    while (remaining > 0) {
+      const count = Math.min(100, remaining);
+      const chunk = stream.points.slice(stream.nextCursor, stream.nextCursor + count);
+      const tail = stream.nextCursor + count - 1;
+      remaining -= count;
+      await this.hspAddPoints(
+        chunk,
+        false,
+        tail,
+        remaining === 0 ? this.hspThresholdForTail(tail, stream.lowWater) : null,
+      );
+      stream.nextCursor += count;
+      stream.sentTail = tail;
+    }
+    return this.hspState;
+  }
+
+  async hspHandleStreamEvent(type, state) {
+    return this.enqueueHspStream(() => this.refillHspStream(type, state));
+  }
+
+  async hspResumeStreamAfterReconnect() {
+    return this.enqueueHspStream(async () => {
+      const stream = this.hspStream;
+      if (!stream?.active || stream.points.length === 0) return this.hspState;
+      // Replaying the last confirmed current point is preferable to skipping an
+      // unconfirmed tail after a disconnect.
+      const resumeAt = Math.max(0, Math.min(
+        Math.floor(Number(stream.lastCurrentPoint) || 0),
+        stream.points.length - 1,
+      ));
+      await this.fillHspStreamInitial(resumeAt);
+      return this.hspState;
+    });
   }
 
   async hspStop() {
-    return this.request('PUT', '/hsp/stop');
+    const data = await this.request('PUT', '/hsp/stop');
+    if (this.hspStream) this.hspStream.active = false;
+    this.captureHspState(data.result);
+    return data;
   }
 
   // HDSP — used for one-shot absolute positioning
@@ -649,6 +875,22 @@ export class HandyManager {
     );
   }
 
+  async hspStartStreamAll(points, loop = true, playbackRate = 1.0, devices = this.hspReadyDevices) {
+    return this.broadcast(
+      'HSP stream start',
+      devices,
+      d => d.hspStartStream(points, { loop, playbackRate })
+    );
+  }
+
+  async hspAppendStreamAll(points, devices = this.hspReadyDevices) {
+    return this.broadcast(
+      'HSP stream append',
+      devices,
+      d => d.hspAppendStream(points)
+    );
+  }
+
   // Set up HDSP on all connected devices
   async setupHDSPAll() {
     const devices = this.connectedDevices;
@@ -688,6 +930,24 @@ export class HandyManager {
       es.addEventListener(evt, (e) => {
         try { onEvent(evt, JSON.parse(e.data)); }
         catch { onEvent(evt, {}); }
+      });
+    }
+    return es;
+  }
+
+  openDeviceSSE(device, events, onEvent) {
+    if (!device || !this.apiKey) return null;
+
+    const params = new URLSearchParams({
+      apikey: this.apiKey,
+      ck: device.connectionKey,
+      events: events.join(','),
+    });
+    const es = new EventSource(`${API_BASE}/sse?${params}`);
+    for (const evt of events) {
+      es.addEventListener(evt, (e) => {
+        try { onEvent(evt, JSON.parse(e.data), device); }
+        catch { onEvent(evt, {}, device); }
       });
     }
     return es;
