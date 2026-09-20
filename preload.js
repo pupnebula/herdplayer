@@ -49,10 +49,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   prefsOpenExternal: (url)    => ipcRenderer.invoke('prefs:open-external', url),
   prefsRevealPath:   (p)      => ipcRenderer.invoke('prefs:reveal-path', p),
   prefsChooseFolder: ()       => ipcRenderer.invoke('prefs:choose-folder'),
+  prefsChooseExecutable: ()   => ipcRenderer.invoke('prefs:choose-executable'),
   prefsConfirm:      (opts)   => ipcRenderer.invoke('prefs:confirm', opts),
 
   getMediaDiagnostics: () => ipcRenderer.invoke('media:get-diagnostics'),
   runtimeGetConfig:     () => ipcRenderer.invoke('runtime:get-config'),
   runtimeSetGpuBackend: (backend) => ipcRenderer.invoke('runtime:set-gpu-backend', backend),
+  runtimeSetPlayerConfig: (config) => ipcRenderer.invoke('runtime:set-player-config', config),
   runtimeRestart:       () => ipcRenderer.invoke('runtime:restart'),
 });

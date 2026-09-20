@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/handy.test.mjs tests/group-app.test.mjs tests/depletion-clock.test.mjs tests/queue-patterns.test.mjs tests/media-diagnostics.test.mjs tests/runtime-config.test.mjs",
+    "test": "node --test tests/handy.test.mjs tests/group-app.test.mjs tests/depletion-clock.test.mjs tests/queue-patterns.test.mjs tests/media-diagnostics.test.mjs tests/runtime-config.test.mjs tests/mpv-controller.test.mjs",
     "icon": "node scripts/generate-icon.js",
     "auth": "node scripts/auth-tools.js",
     "build": "electron-builder --win"
@@ -20,6 +20,7 @@
     "files": [
       "main.js",
       "runtime-config.js",
+      "mpv-controller.js",
       "preload.js",
       "auth.js",
       "auth-config.js",

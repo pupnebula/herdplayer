@@ -2,13 +2,22 @@ const fs = require('fs');
 const path = require('path');
 
 const GPU_BACKENDS = new Set(['auto', 'd3d11', 'vulkan', 'software']);
-const DEFAULT_RUNTIME_CONFIG = Object.freeze({ gpuBackend: 'auto' });
+const PLAYER_BACKENDS = new Set(['chromium', 'mpv']);
+const DEFAULT_RUNTIME_CONFIG = Object.freeze({
+  gpuBackend: 'auto',
+  playerBackend: 'chromium',
+  mpvPath: '',
+});
 
 function normalizeRuntimeConfig(value) {
   return {
     gpuBackend: GPU_BACKENDS.has(value?.gpuBackend)
       ? value.gpuBackend
       : DEFAULT_RUNTIME_CONFIG.gpuBackend,
+    playerBackend: PLAYER_BACKENDS.has(value?.playerBackend)
+      ? value.playerBackend
+      : DEFAULT_RUNTIME_CONFIG.playerBackend,
+    mpvPath: typeof value?.mpvPath === 'string' ? value.mpvPath.trim() : '',
   };
 }
 
@@ -46,6 +55,7 @@ function applyGpuBackend(electronApp, backend) {
 module.exports = {
   DEFAULT_RUNTIME_CONFIG,
   GPU_BACKENDS,
+  PLAYER_BACKENDS,
   normalizeRuntimeConfig,
   readRuntimeConfig,
   writeRuntimeConfig,

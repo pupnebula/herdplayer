@@ -62,6 +62,12 @@ The library on the left lists everything in the loaded folder. A ✓ badge means
 
 The video plays in a separate window. Hit play/pause/seek as normal — the connected Handys follow along. Behind the scenes the app uploads the script to Handy's hosting service, points each device at it, and re-syncs every two seconds while playing.
 
+#### Video engines, codecs, and HDR
+
+The built-in Chromium player is the default. For formats/codecs it cannot decode, or for better HDR handling, open **Settings → Advanced → Video engine** and select **mpv**. HerdPlayer can use an mpv executable you choose, a copy supplied at `resources/mpv/mpv.exe` by a custom package, or `mpv` from the system `PATH`. HerdPlayer does not download or bundle mpv itself.
+
+The mpv engine runs in its own player window with safe hardware decoding, `gpu-next`, HDR display hints, and automatic tone mapping. Playback time, pause, seek, duration, decoder, and video metadata return to HerdPlayer through mpv's JSON IPC so Handy synchronization continues to use the active player clock. If mpv cannot start for a selected video, HerdPlayer reports the reason and falls back to Chromium for that session. Actual HDR output still depends on the video, display, Windows HDR setting, GPU driver, and mpv build.
+
 #### Sync controls
 
 - **Offset (ms)** — global timing offset applied to every device. Use the −50 / +50 buttons or type a value directly.
@@ -146,7 +152,7 @@ The right-hand panel works the same in all modes:
 - **Switching modes stops the current mode** — the app cleanly stops HSSP / HSP / HAMP playback before setting the new one up.
 - **Folder pairing is filename-based** — if a script isn't matching, rename it to share a prefix with the video.
 - **Local video files** — videos loaded from disk are streamed via a custom `localfile://` protocol so seeking works even on large files (no full-file blob URL).
-- **Two windows** — the app launches a control window and a separate video window, side by side when there's room. They communicate over IPC; close either to exit.
+- **Video window** — Chromium mode launches a separate Electron video window beside the controls. mpv mode uses mpv's own player window instead.
 - **Safe shutdown** — closing either window gives active devices up to five seconds to stop. If any stop fails or times out, HerdPlayer warns that devices may still be moving and keeps the app open by default. A forced process termination, power loss, or network outage cannot guarantee a remote stop; use the Handy's physical controls if needed.
 - **State persistence** — Application ID, device keys, nicknames, and per-device offsets are saved to local storage. Other settings (mode, current video, group layout) are not.
 
@@ -156,6 +162,8 @@ The right-hand panel works the same in all modes:
 
 ```text
 main.js              Electron main process (windows, IPC, localfile protocol)
+mpv-controller.js     Optional mpv process and JSON IPC integration
+runtime-config.js     Pre-start graphics/player configuration
 preload.js           Renderer bridge
 index.html           Control window
 video.html           Video window

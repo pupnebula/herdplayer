@@ -5,6 +5,7 @@ const path = require('path');
 const fs   = require('fs');
 const { Readable } = require('stream');
 const { verifyToken } = require('./auth');
+const { MpvController } = require('./mpv-controller');
 const {
   applyGpuBackend,
   normalizeRuntimeConfig,
@@ -18,6 +19,8 @@ const {
 const runtimeConfigPath = path.join(app.getPath('userData'), 'runtime-config.json');
 let runtimeConfig = readRuntimeConfig(runtimeConfigPath);
 const activeGpuBackend = resolveGpuBackend(runtimeConfig);
+const activePlayerBackend = runtimeConfig.playerBackend;
+const activeMpvPath = runtimeConfig.mpvPath;
 applyGpuBackend(app, activeGpuBackend);
 
 // Register localfile:// as a privileged streaming scheme for local video files.
@@ -29,6 +32,8 @@ protocol.registerSchemesAsPrivileged([{
 
 let controlWindow = null;
 let videoWindow = null;
+let mpvController = null;
+let mpvFallbackActive = false;
 let allowWindowClose = false;
 let shutdownInProgress = false;
 let shutdownRequestId = 0;
@@ -129,6 +134,7 @@ async function beginSafeShutdown({ restart = false } = {}) {
   }
 
   allowWindowClose = true;
+  mpvController?.shutdown();
   if (restart) app.relaunch();
   closeAllWindows();
   return true;
@@ -185,6 +191,7 @@ function createWindows() {
   });
 
   videoWindow = new BrowserWindow({
+    show: activePlayerBackend !== 'mpv',
     width: videoW,
     height: videoH,
     x: startX + controlW,
@@ -231,16 +238,60 @@ function createWindows() {
 // The manual panel lives inside the control window now and is wired
 // in-process, so no 'to-manual' / 'from-manual' channels are needed.
 ipcMain.on('to-video', (_event, msg) => {
+  if (activePlayerBackend === 'mpv' && !mpvFallbackActive
+      && ['load-video', 'pause', 'seek'].includes(msg?.type)) {
+    void handleMpvCommand(msg);
+    return;
+  }
   if (videoWindow && !videoWindow.isDestroyed()) {
     videoWindow.webContents.send('from-control', msg);
   }
 });
 
 ipcMain.on('to-control', (_event, msg) => {
+  sendToControl(msg);
+});
+
+function sendToControl(msg) {
   if (controlWindow && !controlWindow.isDestroyed()) {
     controlWindow.webContents.send('from-video', msg);
   }
-});
+}
+
+async function handleMpvCommand(msg) {
+  try {
+    if (!mpvController) throw new Error('The mpv player is not initialized.');
+    if (msg.type === 'load-video') {
+      await mpvController.load(msg);
+      videoWindow?.hide();
+    } else if (msg.type === 'pause') {
+      await mpvController.pause();
+    } else if (msg.type === 'seek') {
+      await mpvController.seek(msg.currentTime);
+    }
+  } catch (err) {
+    const canFallback = msg.type === 'load-video';
+    if (canFallback) {
+      mpvFallbackActive = true;
+      mpvController?.shutdown();
+      if (videoWindow && !videoWindow.isDestroyed()) {
+        videoWindow.show();
+        videoWindow.webContents.send('from-control', msg);
+      }
+    }
+    sendToControl({
+      type: 'media-error',
+      source: msg.name || 'Video',
+      error: {
+        code: 0,
+        name: 'MPV_START_ERROR',
+        message: `${err.message}${canFallback ? ' Falling back to the Chromium player.' : ''}`,
+        browserMessage: '',
+      },
+      diagnostics: { backend: 'mpv' },
+    });
+  }
+}
 
 const MIME_TYPES = {
   '.mp4': 'video/mp4', '.m4v': 'video/mp4',
@@ -366,6 +417,18 @@ ipcMain.handle('prefs:choose-folder', async () => {
   return result.filePaths[0];
 });
 
+ipcMain.handle('prefs:choose-executable', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    title: 'Choose mpv executable',
+    filters: process.platform === 'win32'
+      ? [{ name: 'Executable', extensions: ['exe'] }, { name: 'All files', extensions: ['*'] }]
+      : [{ name: 'All files', extensions: ['*'] }],
+  });
+  if (result.canceled || !result.filePaths.length) return null;
+  return result.filePaths[0];
+});
+
 ipcMain.handle('prefs:confirm', async (_event, opts) => {
   const result = await dialog.showMessageBox({
     type: 'warning',
@@ -397,22 +460,41 @@ ipcMain.handle('media:get-diagnostics', async () => {
     gpuFeatureStatus: app.getGPUFeatureStatus(),
     gpuInfo,
     activeGpuBackend,
+    activePlayerBackend: mpvFallbackActive ? 'chromium-fallback' : activePlayerBackend,
   };
 });
 
 ipcMain.handle('runtime:get-config', () => ({
   ...runtimeConfig,
   activeGpuBackend,
+  activePlayerBackend,
+  restartRequired: runtimeConfig.gpuBackend !== activeGpuBackend
+    || runtimeConfig.playerBackend !== activePlayerBackend
+    || (activePlayerBackend === 'mpv' && runtimeConfig.mpvPath !== activeMpvPath),
   overriddenByEnvironment: ['auto', 'd3d11', 'vulkan', 'software']
     .includes(String(process.env.HERDPLAYER_GPU_BACKEND || '').toLowerCase()),
 }));
 
 ipcMain.handle('runtime:set-gpu-backend', (_event, gpuBackend) => {
-  runtimeConfig = writeRuntimeConfig(runtimeConfigPath, normalizeRuntimeConfig({ gpuBackend }));
+  runtimeConfig = writeRuntimeConfig(runtimeConfigPath, normalizeRuntimeConfig({ ...runtimeConfig, gpuBackend }));
   return {
     ...runtimeConfig,
     activeGpuBackend,
     restartRequired: runtimeConfig.gpuBackend !== activeGpuBackend,
+  };
+});
+
+ipcMain.handle('runtime:set-player-config', (_event, playerConfig) => {
+  runtimeConfig = writeRuntimeConfig(runtimeConfigPath, normalizeRuntimeConfig({
+    ...runtimeConfig,
+    playerBackend: playerConfig?.playerBackend ?? runtimeConfig.playerBackend,
+    mpvPath: playerConfig?.mpvPath ?? runtimeConfig.mpvPath,
+  }));
+  return {
+    ...runtimeConfig,
+    activePlayerBackend,
+    restartRequired: runtimeConfig.playerBackend !== activePlayerBackend
+      || (activePlayerBackend === 'mpv' && runtimeConfig.mpvPath !== activeMpvPath),
   };
 });
 
@@ -432,6 +514,14 @@ app.whenReady().then(async () => {
   }
   protocol.handle('localfile', handleLocalFile);
   createWindows();
+  if (activePlayerBackend === 'mpv') {
+    mpvController = new MpvController({
+      configuredPath: runtimeConfig.mpvPath,
+      resourcesPath: process.resourcesPath,
+      geometry: videoWindow?.getBounds(),
+    });
+    mpvController.on('playback-event', sendToControl);
+  }
 });
 
 app.on('window-all-closed', () => {

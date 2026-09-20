@@ -10,8 +10,25 @@ const {
 } = require('../runtime-config.js');
 
 test('runtime config rejects unknown GPU backends', () => {
-  assert.deepEqual(normalizeRuntimeConfig({ gpuBackend: 'anything' }), { gpuBackend: 'auto' });
-  assert.deepEqual(normalizeRuntimeConfig({ gpuBackend: 'vulkan' }), { gpuBackend: 'vulkan' });
+  assert.deepEqual(normalizeRuntimeConfig({ gpuBackend: 'anything' }), {
+    gpuBackend: 'auto', playerBackend: 'chromium', mpvPath: '',
+  });
+  assert.deepEqual(normalizeRuntimeConfig({ gpuBackend: 'vulkan' }), {
+    gpuBackend: 'vulkan', playerBackend: 'chromium', mpvPath: '',
+  });
+});
+
+test('runtime config validates the player backend and mpv path', () => {
+  assert.deepEqual(normalizeRuntimeConfig({
+    gpuBackend: 'd3d11',
+    playerBackend: 'mpv',
+    mpvPath: '  C:\\Tools\\mpv.exe  ',
+  }), {
+    gpuBackend: 'd3d11',
+    playerBackend: 'mpv',
+    mpvPath: 'C:\\Tools\\mpv.exe',
+  });
+  assert.equal(normalizeRuntimeConfig({ playerBackend: 'unknown' }).playerBackend, 'chromium');
 });
 
 test('a valid environment override provides a launch-time recovery path', () => {

@@ -640,6 +640,47 @@ async function renderAdvanced(parent) {
         runtime.gpuBackend === runtime.activeGpuBackend ? null : 'Required to apply the selected backend.',
         actionButton('Restart', () => window.electronAPI.runtimeRestart())),
     ));
+
+    const playerSelect = el('select', { class: 'prefs-select' });
+    for (const option of [
+      { value: 'chromium', label: 'Chromium (built in)' },
+      { value: 'mpv', label: 'mpv (broad codecs + HDR)' },
+    ]) {
+      const node = el('option', { value: option.value }, option.label);
+      if (runtime.playerBackend === option.value) node.selected = true;
+      playerSelect.appendChild(node);
+    }
+    playerSelect.addEventListener('change', async () => {
+      runtime = await window.electronAPI.runtimeSetPlayerConfig({ playerBackend: playerSelect.value });
+      renderBody();
+    });
+
+    const chooseMpv = actionButton(runtime.mpvPath ? 'Change…' : 'Choose…', async () => {
+      const executable = await window.electronAPI.prefsChooseExecutable();
+      if (!executable) return;
+      runtime = await window.electronAPI.runtimeSetPlayerConfig({ mpvPath: executable });
+      renderBody();
+    });
+    const mpvPathControls = runtime.mpvPath
+      ? el('div', { class: 'prefs-button-row' }, chooseMpv,
+          actionButton('Use PATH', async () => {
+            runtime = await window.electronAPI.runtimeSetPlayerConfig({ mpvPath: '' });
+            renderBody();
+          }))
+      : chooseMpv;
+    parent.appendChild(settingsSection('Video engine',
+      settingsRow('Player',
+        'mpv adds many codecs, hardware decoding, HDR passthrough/tone mapping, and uses its own player window.',
+        playerSelect),
+      settingsRow('mpv executable',
+        runtime.mpvPath || 'Not configured; HerdPlayer will try a bundled copy, then system PATH.',
+        mpvPathControls),
+      settingsRow('Apply player changes',
+        runtime.playerBackend === runtime.activePlayerBackend && !runtime.restartRequired
+          ? null
+          : 'Restart is required to change the active player.',
+        actionButton('Restart', () => window.electronAPI.runtimeRestart())),
+    ));
   }
 
   parent.appendChild(settingsSection('Diagnostics',
