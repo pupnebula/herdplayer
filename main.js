@@ -388,6 +388,9 @@ ipcMain.handle('prefs:get-info', () => ({
   patternsPath: path.join(__dirname, 'patterns'),
   logsPath: app.getPath('logs'),
   specPath: path.join(__dirname, 'spec.yaml'),
+  mpvNoticePath: app.isPackaged
+    ? path.join(process.resourcesPath, 'mpv', 'NOTICE.txt')
+    : path.join(__dirname, 'vendor', 'mpv', 'NOTICE.txt'),
 }));
 
 ipcMain.handle('prefs:open-path', async (_event, p) => {

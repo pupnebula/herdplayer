@@ -1,0 +1,30 @@
+Bundled mpv player
+==================
+
+HerdPlayer includes an unmodified Windows build of mpv as a separate executable.
+HerdPlayer launches it as a child process and communicates through mpv's JSON IPC.
+
+mpv version: v0.41.0-1050-ge76a35ec9
+mpv commit: e76a35ec95
+FFmpeg commit: b894a6f7c
+Build date: 2026-09-20
+Build provider: shinchiro/mpv-winbuild-cmake
+Build archive: mpv-x86_64-20260920-git-e76a35ec95.7z
+Archive SHA-256: 0d4218b6c8da447040cfcb9c9423bdaacf7a5295360de1c6c9a94e5283a6d1fb
+mpv.exe SHA-256: 66d85dc2a155c75015ff72d8b391a985b1f34e99ff103f0032a8f31862d0f032
+
+mpv is distributed under the GNU General Public License, version 2 or later.
+Its bundled libraries retain their respective licenses. HerdPlayer is a separate
+program and is not part of mpv.
+
+Project and source information:
+
+mpv project: https://github.com/mpv-player/mpv
+Exact mpv revision: https://github.com/mpv-player/mpv/tree/e76a35ec95
+Windows build project: https://github.com/shinchiro/mpv-winbuild-cmake
+Exact build release: https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20260920
+FFmpeg project: https://github.com/FFmpeg/FFmpeg
+Exact FFmpeg revision: https://github.com/FFmpeg/FFmpeg/tree/b894a6f7c
+
+The complete GPL license distributed with this build is in LICENSE.GPL. Copyright
+and component-specific licensing information from mpv is in Copyright.

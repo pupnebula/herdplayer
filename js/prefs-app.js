@@ -720,13 +720,34 @@ async function renderAbout(parent) {
     ),
     el('div', { class: 'prefs-button-row' },
       actionButton('Check for updates', () => {
-        window.electronAPI.prefsOpenExternal('https://github.com/');
+        window.electronAPI.prefsOpenExternal('https://github.com/pupnebula/herdplayer/releases');
       }),
       actionButton('View on GitHub', () => {
-        window.electronAPI.prefsOpenExternal('https://github.com/');
+        window.electronAPI.prefsOpenExternal('https://github.com/pupnebula/herdplayer');
       }),
       actionButton('Open spec.yaml', () => {
         if (info?.specPath) window.electronAPI.prefsOpenPath(info.specPath);
+      }),
+    ),
+  ));
+
+  parent.appendChild(settingsSection('Third-party software',
+    el('div', { class: 'prefs-about-text' },
+      el('div', {}, 'Includes mpv v0.41.0-1050-ge76a35ec9 as a separate GPLv2+ player.'),
+      el('div', {}, 'Windows build by shinchiro/mpv-winbuild-cmake; powered by FFmpeg and other open-source libraries.'),
+    ),
+    el('div', { class: 'prefs-button-row' },
+      actionButton('mpv project', () => {
+        window.electronAPI.prefsOpenExternal('https://github.com/mpv-player/mpv');
+      }),
+      actionButton('Build & source', () => {
+        window.electronAPI.prefsOpenExternal('https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20260920');
+      }),
+      actionButton('FFmpeg', () => {
+        window.electronAPI.prefsOpenExternal('https://github.com/FFmpeg/FFmpeg');
+      }),
+      actionButton('Notices', () => {
+        if (info?.mpvNoticePath) window.electronAPI.prefsOpenPath(info.mpvNoticePath);
       }),
     ),
   ));

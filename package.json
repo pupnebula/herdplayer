@@ -6,6 +6,8 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test tests/handy.test.mjs tests/group-app.test.mjs tests/depletion-clock.test.mjs tests/queue-patterns.test.mjs tests/media-diagnostics.test.mjs tests/runtime-config.test.mjs tests/mpv-controller.test.mjs",
+    "prepare:mpv": "node scripts/prepare-mpv.js",
+    "prebuild": "npm run prepare:mpv",
     "icon": "node scripts/generate-icon.js",
     "auth": "node scripts/auth-tools.js",
     "build": "electron-builder --win"
@@ -29,6 +31,21 @@
       "css/**/*",
       "js/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "build/mpv/mpv.exe",
+        "to": "mpv/mpv.exe"
+      },
+      {
+        "from": "vendor/mpv",
+        "to": "mpv",
+        "filter": [
+          "LICENSE.GPL",
+          "Copyright",
+          "NOTICE.txt"
+        ]
+      }
+    ],
     "win": {
       "target": [
         "portable"
@@ -39,6 +56,7 @@
     }
   },
   "devDependencies": {
+    "7zip-bin": "^5.2.0",
     "electron": "^44.4.3",
     "electron-builder": "^26.0.0"
   }

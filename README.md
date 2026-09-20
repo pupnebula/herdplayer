@@ -64,9 +64,11 @@ The video plays in a separate window. Hit play/pause/seek as normal — the conn
 
 #### Video engines, codecs, and HDR
 
-The built-in Chromium player is the default. For formats/codecs it cannot decode, or for better HDR handling, open **Settings → Advanced → Video engine** and select **mpv**. HerdPlayer can use an mpv executable you choose, a copy supplied at `resources/mpv/mpv.exe` by a custom package, or `mpv` from the system `PATH`. HerdPlayer does not download or bundle mpv itself.
+The built-in Chromium player is the default. For formats/codecs it cannot decode, or for better HDR handling, open **Settings → Advanced → Video engine** and select **mpv**. Windows packages include a pinned x86-64 mpv build. HerdPlayer can also use an mpv executable you choose or `mpv` from the system `PATH`.
 
 The mpv engine runs in its own player window with safe hardware decoding, `gpu-next`, HDR display hints, and automatic tone mapping. Playback time, pause, seek, duration, decoder, and video metadata return to HerdPlayer through mpv's JSON IPC so Handy synchronization continues to use the active player clock. If mpv cannot start for a selected video, HerdPlayer reports the reason and falls back to Chromium for that session. Actual HDR output still depends on the video, display, Windows HDR setting, GPU driver, and mpv build.
+
+The bundled mpv build is an unmodified separate GPLv2+ program. Credits, exact revisions, checksums, license text, build details, and source links are included under `vendor/mpv/` and in **Settings → About**. Its source code is not embedded in HerdPlayer's executable.
 
 #### Sync controls
 
