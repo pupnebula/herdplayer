@@ -19,6 +19,108 @@ protocol.registerSchemesAsPrivileged([{
 
 let controlWindow = null;
 let videoWindow = null;
+let allowWindowClose = false;
+let shutdownInProgress = false;
+let shutdownRequestId = 0;
+const SHUTDOWN_STOP_TIMEOUT_MS = 5000;
+
+function closeAllWindows() {
+  for (const window of [controlWindow, videoWindow]) {
+    if (window && !window.isDestroyed()) window.close();
+  }
+}
+
+function requestRendererStop() {
+  if (!controlWindow || controlWindow.isDestroyed() || controlWindow.webContents.isDestroyed()) {
+    return Promise.resolve({
+      ok: false,
+      attempted: 0,
+      stopped: 0,
+      failures: ['The control window was unavailable, so device stop commands could not be sent.'],
+    });
+  }
+
+  const requestId = ++shutdownRequestId;
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      ipcMain.removeListener('shutdown-stop-result', onResult);
+      resolve(result);
+    };
+    const onResult = (event, result) => {
+      if (event.sender !== controlWindow?.webContents || result?.requestId !== requestId) return;
+      finish(result);
+    };
+    const timer = setTimeout(() => finish({
+      ok: false,
+      timedOut: true,
+      attempted: 0,
+      stopped: 0,
+      failures: [`Device stop requests did not finish within ${SHUTDOWN_STOP_TIMEOUT_MS / 1000} seconds.`],
+    }), SHUTDOWN_STOP_TIMEOUT_MS);
+
+    ipcMain.on('shutdown-stop-result', onResult);
+    try {
+      controlWindow.webContents.send('shutdown-stop-request', {
+        requestId,
+        timeoutMs: SHUTDOWN_STOP_TIMEOUT_MS,
+      });
+    } catch (err) {
+      finish({
+        ok: false,
+        attempted: 0,
+        stopped: 0,
+        failures: [`Could not ask the control window to stop devices: ${err.message}`],
+      });
+    }
+  });
+}
+
+async function beginSafeShutdown() {
+  if (shutdownInProgress || allowWindowClose) return;
+  shutdownInProgress = true;
+
+  let result;
+  try {
+    result = await requestRendererStop();
+  } catch (err) {
+    result = {
+      ok: false,
+      attempted: 0,
+      stopped: 0,
+      failures: [`Unexpected shutdown error: ${err.message}`],
+    };
+  }
+  if (!result.ok) {
+    const failureDetail = result.failures?.length
+      ? result.failures.join('\n')
+      : 'One or more stop commands failed or did not receive a response.';
+    const parent = controlWindow && !controlWindow.isDestroyed() ? controlWindow : null;
+    const options = {
+      type: 'warning',
+      buttons: ['Keep App Open', 'Exit Anyway'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Devices may still be moving',
+      message: 'HerdPlayer could not confirm that every active device stopped.',
+      detail: `${failureDetail}\n\nKeep the app open to reconnect or retry Emergency Stop.`,
+      noLink: true,
+    };
+    const { response } = parent
+      ? await dialog.showMessageBox(parent, options)
+      : await dialog.showMessageBox(options);
+    if (response !== 1) {
+      shutdownInProgress = false;
+      return;
+    }
+  }
+
+  allowWindowClose = true;
+  closeAllWindows();
+}
 
 function createWindows() {
   const wa = screen.getPrimaryDisplay().workArea;
@@ -90,14 +192,24 @@ function createWindows() {
   controlWindow.loadFile('index.html');
   videoWindow.loadFile('video.html');
 
-  const closeAll = () => {
-    for (const w of [controlWindow, videoWindow]) {
-      if (w && !w.isDestroyed()) w.close();
-    }
+  const handleClose = event => {
+    if (allowWindowClose) return;
+    event.preventDefault();
+    beginSafeShutdown();
   };
 
-  controlWindow.on('closed', () => { controlWindow = null; closeAll(); });
-  videoWindow.on('closed', () => { videoWindow = null; closeAll(); });
+  controlWindow.on('close', handleClose);
+  videoWindow.on('close', handleClose);
+  controlWindow.on('closed', () => {
+    controlWindow = null;
+    if (allowWindowClose) closeAllWindows();
+    else beginSafeShutdown();
+  });
+  videoWindow.on('closed', () => {
+    videoWindow = null;
+    if (allowWindowClose) closeAllWindows();
+    else beginSafeShutdown();
+  });
 }
 
 // Bidirectional IPC forwarding between control and video windows.
@@ -247,5 +359,12 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  app.quit();
+  if (allowWindowClose) app.quit();
+  else beginSafeShutdown();
+});
+
+app.on('before-quit', event => {
+  if (allowWindowClose) return;
+  event.preventDefault();
+  beginSafeShutdown();
 });

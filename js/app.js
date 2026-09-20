@@ -73,10 +73,16 @@ class App {
     this.hspPlaying = false;
     this.hspTailIndex = 0;
     this.hspSSE = null;
+    this.activeProtocolDevices = {
+      hssp: new Set(),
+      hamp: new Set(),
+      hsp: new Set(),
+    };
     this.dom = {};
     this.initDOM();
     this.initEvents();
     this.initIPC();
+    this.initShutdownStop();
     this.initManualIPC();
     this.initTimeline();
     this.loadSavedState();
@@ -192,6 +198,17 @@ class App {
           this.handleScriptText(msg.text, msg.fileName);
           break;
       }
+    });
+  }
+
+  initShutdownStop() {
+    window.electronAPI.onShutdownStopRequest(async ({ requestId }) => {
+      this.stopSyncTimer();
+      const result = await this.stopActiveProtocols();
+      window.electronAPI.sendToVideo({ type: 'pause' });
+      this.isPlaying = false;
+      if (result.ok) this.closeHspSSE();
+      window.electronAPI.sendShutdownStopResult({ requestId, ...result });
     });
   }
 
@@ -456,6 +473,7 @@ class App {
     if (prev === 'hssp' && this.manager.anyReady) {
       try {
         const summary = await this.manager.hsspStopAll();
+        this.markProtocolStopped('hssp', summary);
         this.reportPartialFailure(summary, 'HSSP stop');
       } catch (err) {
         this.toast(`HSSP stop failed: ${err.message}`, 'error');
@@ -467,6 +485,7 @@ class App {
     if ((prev === 'hsp' || prev === 'queue') && this.manager.anyHspReady) {
       try {
         const summary = await this.manager.hspStopAll();
+        this.markProtocolStopped('hsp', summary);
         this.reportPartialFailure(summary, 'HSP stop');
         this.hspPlaying = !summary.ok;
       } catch (err) {
@@ -478,6 +497,7 @@ class App {
     if (prev === 'hamp' && this.manager.anyHampReady) {
       try {
         const summary = await this.manager.hampStopAll();
+        this.markProtocolStopped('hamp', summary);
         this.reportPartialFailure(summary, 'HAMP stop');
       } catch (err) {
         this.toast(`HAMP stop failed: ${err.message}`, 'error');
@@ -502,36 +522,27 @@ class App {
     window.electronAPI.onFromManual((msg) => {
       switch (msg.type) {
         case 'hsp-start':
-          this.hspStart(msg.points, msg.rate ?? 1.0, msg.loop ?? true);
-          break;
+          return this.hspStart(msg.points, msg.rate ?? 1.0, msg.loop ?? true);
         case 'hsp-stop':
-          this.hspStop();
-          break;
+          return this.hspStop();
         case 'hsp-append':
-          this.hspAppend(msg.points);
-          break;
+          return this.hspAppend(msg.points);
         case 'queue-rate-change':
-          this.hspSetRate(msg.rate);
-          break;
+          return this.hspSetRate(msg.rate);
         case 'hsp-start-devices':
-          this.hspStartDevices(msg.tag, msg.deviceIndices, msg.points);
-          break;
+          return this.hspStartDevices(msg.tag, msg.deviceIndices, msg.points);
         case 'hsp-stop-devices':
-          this.hspStopDevices(msg.tag, msg.deviceIndices);
-          break;
+          return this.hspStopDevices(msg.tag, msg.deviceIndices);
         case 'hamp-start-devices':
-          this.hampStartDevices(msg.tag, msg.deviceIndices, msg.velocity, msg.strokeMin, msg.strokeMax);
-          break;
+          return this.hampStartDevices(msg.tag, msg.deviceIndices, msg.velocity, msg.strokeMin, msg.strokeMax);
         case 'hamp-update-devices':
-          this.hampUpdateDevices(msg.deviceIndices, msg.velocity, msg.strokeMin, msg.strokeMax);
-          break;
+          return this.hampUpdateDevices(msg.deviceIndices, msg.velocity, msg.strokeMin, msg.strokeMax);
         case 'hamp-stop-devices':
-          this.hampStopDevices(msg.tag, msg.deviceIndices);
-          break;
+          return this.hampStopDevices(msg.tag, msg.deviceIndices);
         case 'hdsp-move':
-          this.hdspMove(msg.position, msg.duration);
-          break;
+          return this.hdspMove(msg.position, msg.duration);
       }
+      return undefined;
     });
   }
 
@@ -560,6 +571,109 @@ class App {
     return summary.succeeded
       .map(result => result.deviceIndex)
       .filter(index => index >= 0);
+  }
+
+  markProtocolActive(protocol, summary) {
+    const active = this.activeProtocolDevices[protocol];
+    for (const { device } of summary.succeeded) active?.add(device);
+  }
+
+  clearOtherProtocolActivity(protocol, summary) {
+    for (const { device } of summary.succeeded) {
+      for (const [name, active] of Object.entries(this.activeProtocolDevices)) {
+        if (name !== protocol) active.delete(device);
+      }
+    }
+  }
+
+  markProtocolStopped(protocol, summary) {
+    const active = this.activeProtocolDevices[protocol];
+    for (const { device } of summary.succeeded) active?.delete(device);
+  }
+
+  notifyProtocolStopped(protocol, summary) {
+    const deviceIndices = this.successfulDeviceIndices(summary);
+    if (deviceIndices.length === 0) return;
+    if (protocol === 'hsp') {
+      window.electronAPI.sendToManual({ type: 'hsp-playing', deviceIndices, playing: false });
+      window.electronAPI.sendToManual({
+        type: 'hsp-playing-devices',
+        tag: null,
+        deviceIndices,
+        playing: false,
+      });
+    } else if (protocol === 'hamp') {
+      window.electronAPI.sendToManual({
+        type: 'hamp-playing-devices',
+        tag: null,
+        deviceIndices,
+        playing: false,
+      });
+    }
+  }
+
+  protocolStopTargets(protocol, candidates = null) {
+    const active = this.activeProtocolDevices[protocol];
+    const targets = new Set(active);
+    const allowed = candidates ? new Set(candidates) : null;
+
+    // Readiness/playback is a conservative fallback for commands that began
+    // before local active-state tracking completed.
+    const fallback = protocol === 'hssp'
+      ? (this.mode === 'hssp' && this.isPlaying ? this.manager.readyDevices : [])
+      : protocol === 'hsp'
+        ? ((this.mode === 'hsp' || this.mode === 'queue') && this.hspPlaying
+            ? this.manager.hspReadyDevices
+            : [])
+        : (this.mode === 'hamp' ? this.manager.hampReadyDevices : []);
+    for (const device of fallback) targets.add(device);
+
+    return [...targets].filter(device => !allowed || allowed.has(device));
+  }
+
+  async stopActiveProtocols(candidates = null) {
+    const definitions = [
+      ['hssp', 'HSSP stop', device => device.hsspStop()],
+      ['hsp', 'HSP stop', device => device.hspStop()],
+      ['hamp', 'HAMP stop', device => device.hampStop()],
+    ];
+    const outcomes = await Promise.all(definitions.map(async ([protocol, label, stop]) => {
+      const devices = this.protocolStopTargets(protocol, candidates);
+      if (devices.length === 0) return { protocol, attempted: 0, stopped: 0, failures: [] };
+      try {
+        const summary = await this.manager.broadcast(label, devices, stop);
+        this.markProtocolStopped(protocol, summary);
+        for (const { device } of summary.failed) this.activeProtocolDevices[protocol].add(device);
+        this.notifyProtocolStopped(protocol, summary);
+        return {
+          protocol,
+          attempted: summary.total,
+          stopped: summary.successCount,
+          failures: summary.failed.map(result => result.reason?.message || 'Unknown error'),
+        };
+      } catch (err) {
+        const summary = err.summary;
+        for (const { device } of summary?.failed ?? []) {
+          this.activeProtocolDevices[protocol].add(device);
+        }
+        return {
+          protocol,
+          attempted: summary?.total ?? devices.length,
+          stopped: summary?.successCount ?? 0,
+          failures: summary
+            ? summary.failed.map(result => result.reason?.message || 'Unknown error')
+            : [err.message],
+        };
+      }
+    }));
+
+    const attempted = outcomes.reduce((sum, outcome) => sum + outcome.attempted, 0);
+    const stopped = outcomes.reduce((sum, outcome) => sum + outcome.stopped, 0);
+    const failures = outcomes.flatMap(outcome =>
+      outcome.failures.map(message => `${outcome.protocol.toUpperCase()}: ${message}`)
+    );
+    this.hspPlaying = this.activeProtocolDevices.hsp.size > 0;
+    return { ok: failures.length === 0, attempted, stopped, failures, outcomes };
   }
 
   reportPartialFailure(summary, label, requestedCount = summary.total) {
@@ -595,6 +709,7 @@ class App {
         );
       }
       const succeeded = this.successfulDeviceIndices(summary);
+      this.markProtocolActive('hsp', summary);
       if (succeeded.length > 0) {
         window.electronAPI.sendToManual({
           type: 'hsp-playing-devices',
@@ -612,11 +727,12 @@ class App {
   async hspStopDevices(tag, deviceIndices) {
     const devices = deviceIndices
       .map(i => this.manager.devices[i])
-      .filter(d => d?.hspReady);
-    if (devices.length === 0) return;
+      .filter(Boolean);
+    if (devices.length === 0) return { ok: true, stoppedDeviceIndices: [] };
     try {
       const summary = await this.manager.broadcast('Group HSP stop', devices, d => d.hspStop());
       const succeeded = this.successfulDeviceIndices(summary);
+      this.markProtocolStopped('hsp', summary);
       if (succeeded.length > 0) {
         window.electronAPI.sendToManual({
           type: 'hsp-playing-devices',
@@ -626,8 +742,10 @@ class App {
         });
       }
       this.reportPartialFailure(summary, 'HSP stop', devices.length);
+      return { ok: summary.ok, stoppedDeviceIndices: succeeded };
     } catch (err) {
       this.toast(`HSP stop error: ${err.message}`, 'error');
+      return { ok: false, stoppedDeviceIndices: [], error: err.message };
     }
   }
 
@@ -637,6 +755,7 @@ class App {
     if (!this.manager.anyConnected) return;
     try {
       const summary = await this.manager.setupHAMPAll();
+      this.clearOtherProtocolActivity('hamp', summary);
       this.toast(
         `HAMP ready on ${summary.successCount}/${summary.total} device(s)`,
         summary.partial ? 'error' : 'info',
@@ -694,6 +813,7 @@ class App {
         d => d.hampStart(),
       );
       const succeeded = this.successfulDeviceIndices(startSummary);
+      this.markProtocolActive('hamp', startSummary);
       if (succeeded.length > 0) {
         window.electronAPI.sendToManual({
           type: 'hamp-playing-devices',
@@ -736,11 +856,12 @@ class App {
   async hampStopDevices(tag, deviceIndices) {
     const devices = deviceIndices
       .map(i => this.manager.devices[i])
-      .filter(d => d?.hampReady);
-    if (devices.length === 0) return;
+      .filter(Boolean);
+    if (devices.length === 0) return { ok: true, stoppedDeviceIndices: [] };
     try {
       const summary = await this.manager.broadcast('Group HAMP stop', devices, d => d.hampStop());
       const succeeded = this.successfulDeviceIndices(summary);
+      this.markProtocolStopped('hamp', summary);
       if (succeeded.length > 0) {
         window.electronAPI.sendToManual({
           type: 'hamp-playing-devices',
@@ -750,8 +871,10 @@ class App {
         });
       }
       this.reportPartialFailure(summary, 'HAMP stop', devices.length);
+      return { ok: summary.ok, stoppedDeviceIndices: succeeded };
     } catch (err) {
       this.toast(`HAMP stop error: ${err.message}`, 'error');
+      return { ok: false, stoppedDeviceIndices: [], error: err.message };
     }
   }
 
@@ -761,6 +884,7 @@ class App {
     if (!this.manager.anyConnected) return;
     try {
       const summary = await this.manager.setupHDSPAll();
+      this.clearOtherProtocolActivity(null, summary);
       this.toast(
         `Direct ready on ${summary.successCount}/${summary.total} device(s)`,
         summary.partial ? 'error' : 'info',
@@ -789,6 +913,7 @@ class App {
     if (!this.manager.anyConnected) return;
     try {
       const summary = await this.manager.setupHSPAll();
+      this.clearOtherProtocolActivity('hsp', summary);
       this.toast(
         `HSP ready on ${summary.successCount}/${summary.total} device(s)`,
         summary.partial ? 'error' : 'info',
@@ -821,6 +946,7 @@ class App {
         );
       }
       this.hspPlaying = true;
+      this.markProtocolActive('hsp', summary);
       window.electronAPI.sendToManual({
         type: 'hsp-playing',
         deviceIndices: this.successfulDeviceIndices(summary),
@@ -841,6 +967,7 @@ class App {
     try {
       const summary = await this.manager.hspStopAll();
       const succeeded = this.successfulDeviceIndices(summary);
+      this.markProtocolStopped('hsp', summary);
       window.electronAPI.sendToManual({
         type: 'hsp-playing',
         deviceIndices: succeeded,
@@ -877,6 +1004,7 @@ class App {
     if (!this.manager.anyHspReady || !this.hspPlaying) return;
     try {
       const summary = await this.manager.hspPlayAll(true, rate);
+      this.markProtocolActive('hsp', summary);
       this.reportPartialFailure(summary, 'Rate change');
     } catch (err) {
       this.toast(`Rate change error: ${err.message}`, 'error');
@@ -901,6 +1029,7 @@ class App {
     if (!this.scriptHostUrl || !this.manager.anyConnected) return;
     try {
       const summary = await this.manager.setupHSSPAll(this.scriptHostUrl);
+      this.clearOtherProtocolActivity('hssp', summary);
       this.toast(
         `HSSP ready on ${summary.successCount}/${summary.total} device(s)`,
         summary.partial ? 'error' : 'info',
@@ -919,6 +1048,7 @@ class App {
     try {
       const startMs = this.currentTime * 1000 + this.offset;
       const summary = await this.manager.hsspPlayAll(startMs);
+      this.markProtocolActive('hssp', summary);
       this.reportPartialFailure(summary, 'Handy play');
       this.startSyncTimer();
     } catch (err) {
@@ -932,6 +1062,7 @@ class App {
     if (this.mode !== 'hssp' || !this.manager.anyReady) return;
     try {
       const summary = await this.manager.hsspPauseAll();
+      this.markProtocolStopped('hssp', summary);
       this.reportPartialFailure(summary, 'Handy pause');
     } catch (err) {
       this.toast(`Handy pause error: ${err.message}`, 'error');
@@ -944,6 +1075,7 @@ class App {
     if (this.mode !== 'hssp' || !this.manager.anyReady) return;
     try {
       const summary = await this.manager.hsspStopAll();
+      this.markProtocolStopped('hssp', summary);
       this.reportPartialFailure(summary, 'Handy stop');
     } catch (err) {
       this.toast(`Handy stop error: ${err.message}`, 'error');
@@ -954,6 +1086,7 @@ class App {
     if (this.mode !== 'hssp' || !this.isPlaying || !this.manager.anyReady) return;
     try {
       const stopSummary = await this.manager.hsspStopAll();
+      this.markProtocolStopped('hssp', stopSummary);
       this.reportPartialFailure(stopSummary, 'Seek stop');
       const startMs = this.currentTime * 1000 + this.offset;
       const playSummary = await this.manager.hsspPlayAll(
@@ -961,6 +1094,7 @@ class App {
         1.0,
         this.successfulDevices(stopSummary),
       );
+      this.markProtocolActive('hssp', playSummary);
       this.reportPartialFailure(playSummary, 'Seek restart', stopSummary.successCount);
     } catch (err) {
       this.toast(`Seek sync error: ${err.message}`, 'error');
@@ -1133,16 +1267,10 @@ class App {
     removeBtn.className = 'btn-icon device-remove';
     removeBtn.title = 'Remove device';
     removeBtn.innerHTML = '&times;';
-    removeBtn.addEventListener('click', () => {
-      if (row._device && this.manager.devices.includes(row._device)) {
-        const idx = this.manager.devices.indexOf(row._device);
-        this.manager.removeDevice(idx);
-      }
-      row.remove();
-      this.renumberDeviceRows();
-      this.saveState();
-      this.updateConnectionSummary();
-      if (this.mode === 'hsp' || this.mode === 'queue') this.sendDevicesUpdate();
+    removeBtn.addEventListener('click', async () => {
+      removeBtn.disabled = true;
+      const removed = await this.removeDeviceRow(row);
+      if (!removed) removeBtn.disabled = false;
     });
 
     const reconnectBtn = document.createElement('button');
@@ -1270,6 +1398,30 @@ class App {
     this.dom.devicesList.appendChild(row);
     input.focus();
     this.saveState();
+  }
+
+  async removeDeviceRow(row) {
+    const device = row._device;
+    const managerIndex = device ? this.manager.devices.indexOf(device) : -1;
+    if (device && managerIndex >= 0) {
+      const stopResult = await this.stopActiveProtocols([device]);
+      if (!stopResult.ok) {
+        this.toast(
+          `Device was not removed because it could not be stopped: ${stopResult.failures.join('; ')}`,
+          'error',
+        );
+        return false;
+      }
+      this.manager.removeDevice(managerIndex);
+      for (const active of Object.values(this.activeProtocolDevices)) active.delete(device);
+    }
+
+    row.remove();
+    this.renumberDeviceRows();
+    this.saveState();
+    this.updateConnectionSummary();
+    this.sendDevicesUpdate();
+    return true;
   }
 
   // Read scaler inputs back to the device object, persist, and push a

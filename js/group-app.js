@@ -159,6 +159,9 @@ export class GroupApp {
     this._doMoveStart(deviceIndex, groupId, settings);
   }
 
+  // Return false to keep a group when its devices could not be made safe.
+  async _beforeDeleteGroup(_groupId, _deviceIndices) { return true; }
+
   // Override to return a status string when the panel is globally inactive
   // (e.g. wrong mode selected). Return null to use the default flow.
   _inactiveStatusText() { return null; }
@@ -173,8 +176,10 @@ export class GroupApp {
     this.selectGroup(id);
   }
 
-  deleteGroup(id) {
+  async deleteGroup(id) {
     if (this.groups.size <= 1) return;
+    const deviceIndices = this.getGroupDeviceIndices(id);
+    if (!await this._beforeDeleteGroup(id, deviceIndices)) return;
     const otherGroupId = [...this.groups.keys()].find(k => k !== id);
     for (const [idx, gid] of this.deviceGroup) {
       if (gid === id) this.deviceGroup.set(idx, otherGroupId);

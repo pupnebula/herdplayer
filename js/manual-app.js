@@ -323,6 +323,22 @@ class ManualApp extends GroupApp {
     });
   }
 
+  async _beforeDeleteGroup(groupId, deviceIndices) {
+    const playingIndices = deviceIndices.filter(index => this.playingDeviceIndices.has(index));
+    if (playingIndices.length === 0) return true;
+
+    try {
+      const result = await window.electronAPI.sendFromManual({
+        type: 'hamp-stop-devices',
+        tag: groupId,
+        deviceIndices: playingIndices,
+      });
+      return result?.ok === true;
+    } catch {
+      return false;
+    }
+  }
+
   // ── IPC receive ───────────────────────────────────────────────────
 
   initIPC() {

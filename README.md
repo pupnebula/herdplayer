@@ -134,7 +134,7 @@ The right-hand panel works the same in all modes:
 - **+ Add Device** — add another row.
 - **Connect All** — (re)connect every row at once.
 - **↻ on a row** — reconnect that row only, useful if a single device drops.
-- **× on a row** — remove that device.
+- **× on a row** — stop that device if necessary, then remove it. The row stays available if the stop cannot be confirmed.
 - Each row shows: nickname, connection key, a per-device ms offset, and live status (Connecting → Syncing → Connected, or an error).
 - The summary line at the top of the panel reports `connected/total` and how many are ready in the current mode's protocol.
 
@@ -147,6 +147,7 @@ The right-hand panel works the same in all modes:
 - **Folder pairing is filename-based** — if a script isn't matching, rename it to share a prefix with the video.
 - **Local video files** — videos loaded from disk are streamed via a custom `localfile://` protocol so seeking works even on large files (no full-file blob URL).
 - **Two windows** — the app launches a control window and a separate video window, side by side when there's room. They communicate over IPC; close either to exit.
+- **Safe shutdown** — closing either window gives active devices up to five seconds to stop. If any stop fails or times out, HerdPlayer warns that devices may still be moving and keeps the app open by default. A forced process termination, power loss, or network outage cannot guarantee a remote stop; use the Handy's physical controls if needed.
 - **State persistence** — Application ID, device keys, nicknames, and per-device offsets are saved to local storage. Other settings (mode, current video, group layout) are not.
 
 ---

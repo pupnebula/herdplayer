@@ -25,9 +25,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // In-process manual-panel channels (no IPC).
-  sendToManual:   (msg) => { for (const cb of toManualSubs)   cb(msg); },
-  sendFromManual: (msg) => { for (const cb of fromManualSubs) cb(msg); },
+  sendToManual: (msg) => { for (const cb of toManualSubs) cb(msg); },
+  sendFromManual: async (msg) => {
+    let result;
+    for (const cb of fromManualSubs) result = await cb(msg);
+    return result;
+  },
   onFromManual:   (cb)  => { fromManualSubs.push(cb); },
+
+  onShutdownStopRequest: (cb) => {
+    ipcRenderer.on('shutdown-stop-request', (_event, request) => cb(request));
+  },
+  sendShutdownStopResult: (result) => ipcRenderer.send('shutdown-stop-result', result),
 
   listPatterns: () => ipcRenderer.invoke('list-patterns'),
   readPattern:  (filename) => ipcRenderer.invoke('read-pattern', filename),

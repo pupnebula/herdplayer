@@ -69,7 +69,7 @@ Acceptance criteria:
 - One failed device remains visibly actionable after a partial stop.
 - No outer `try/catch` assumes `allSettled()` will throw.
 
-### [ ] Stop active devices before removing controls or exiting
+### [x] Stop active devices before removing controls or exiting
 
 Affected: device removal in `js/app.js`, group deletion in `js/group-app.js`, and
 window/application shutdown in `main.js`.

@@ -148,6 +148,9 @@ class VideoApp {
         case 'seek':
           this.dom.video.currentTime = msg.currentTime;
           break;
+        case 'pause':
+          this.dom.video.pause();
+          break;
       }
     });
   }
