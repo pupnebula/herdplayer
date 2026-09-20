@@ -612,6 +612,36 @@ async function renderAdvanced(parent) {
       })),
   ));
 
+  let runtime = null;
+  try { runtime = await window.electronAPI.runtimeGetConfig(); } catch { /* unavailable outside Electron */ }
+  if (runtime) {
+    const backendSelect = el('select', { class: 'prefs-select' });
+    for (const option of [
+      { value: 'auto', label: 'Auto (recommended)' },
+      { value: 'd3d11', label: 'Direct3D 11' },
+      { value: 'vulkan', label: 'Vulkan' },
+      { value: 'software', label: 'Software rendering' },
+    ]) {
+      const node = el('option', { value: option.value }, option.label);
+      if (runtime.gpuBackend === option.value) node.selected = true;
+      backendSelect.appendChild(node);
+    }
+    backendSelect.addEventListener('change', async () => {
+      runtime = await window.electronAPI.runtimeSetGpuBackend(backendSelect.value);
+      renderBody();
+    });
+
+    const overrideHelp = runtime.overriddenByEnvironment
+      ? `Currently forced to ${runtime.activeGpuBackend} by HERDPLAYER_GPU_BACKEND.`
+      : `Currently using ${runtime.activeGpuBackend}. Changes apply after restart.`;
+    parent.appendChild(settingsSection('Graphics',
+      settingsRow('Rendering backend', overrideHelp, backendSelect),
+      settingsRow('Restart HerdPlayer',
+        runtime.gpuBackend === runtime.activeGpuBackend ? null : 'Required to apply the selected backend.',
+        actionButton('Restart', () => window.electronAPI.runtimeRestart())),
+    ));
+  }
+
   parent.appendChild(settingsSection('Diagnostics',
     settingsRow('Verbose logging', null, toggle('verboseLogging')),
     settingsRow('Open log folder', null,

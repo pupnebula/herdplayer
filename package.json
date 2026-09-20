@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/handy.test.mjs tests/group-app.test.mjs tests/depletion-clock.test.mjs tests/queue-patterns.test.mjs tests/media-diagnostics.test.mjs",
+    "test": "node --test tests/handy.test.mjs tests/group-app.test.mjs tests/depletion-clock.test.mjs tests/queue-patterns.test.mjs tests/media-diagnostics.test.mjs tests/runtime-config.test.mjs",
     "icon": "node scripts/generate-icon.js",
     "auth": "node scripts/auth-tools.js",
     "build": "electron-builder --win"
@@ -13,10 +13,13 @@
   "build": {
     "appId": "com.herdplayer.app",
     "productName": "HerdPlayer",
-    "electronLanguages": ["en-US"],
+    "electronLanguages": [
+      "en-US"
+    ],
     "compression": "maximum",
     "files": [
       "main.js",
+      "runtime-config.js",
       "preload.js",
       "auth.js",
       "auth-config.js",
@@ -35,7 +38,7 @@
     }
   },
   "devDependencies": {
-    "electron": "^35.0.0",
+    "electron": "^44.4.3",
     "electron-builder": "^26.0.0"
   }
 }

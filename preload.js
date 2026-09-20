@@ -49,4 +49,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   prefsConfirm:      (opts)   => ipcRenderer.invoke('prefs:confirm', opts),
 
   getMediaDiagnostics: () => ipcRenderer.invoke('media:get-diagnostics'),
+  runtimeGetConfig:     () => ipcRenderer.invoke('runtime:get-config'),
+  runtimeSetGpuBackend: (backend) => ipcRenderer.invoke('runtime:set-gpu-backend', backend),
+  runtimeRestart:       () => ipcRenderer.invoke('runtime:restart'),
 });

@@ -5,10 +5,20 @@ const path = require('path');
 const fs   = require('fs');
 const { Readable } = require('stream');
 const { verifyToken } = require('./auth');
+const {
+  applyGpuBackend,
+  normalizeRuntimeConfig,
+  readRuntimeConfig,
+  resolveGpuBackend,
+  writeRuntimeConfig,
+} = require('./runtime-config');
 
-// Use the ANGLE GL backend with vulkan to prevent GPU compositor crashes (exit_code=34)
-app.commandLine.appendSwitch('use-gl', 'angle');
-app.commandLine.appendSwitch('use-angle', 'vulkan');
+// GPU selection must happen before app readiness. A persisted setting and an
+// environment override provide recovery paths for driver-specific failures.
+const runtimeConfigPath = path.join(app.getPath('userData'), 'runtime-config.json');
+let runtimeConfig = readRuntimeConfig(runtimeConfigPath);
+const activeGpuBackend = resolveGpuBackend(runtimeConfig);
+applyGpuBackend(app, activeGpuBackend);
 
 // Register localfile:// as a privileged streaming scheme for local video files.
 // Must happen before app ready.
@@ -79,7 +89,7 @@ function requestRendererStop() {
   });
 }
 
-async function beginSafeShutdown() {
+async function beginSafeShutdown({ restart = false } = {}) {
   if (shutdownInProgress || allowWindowClose) return;
   shutdownInProgress = true;
 
@@ -114,12 +124,14 @@ async function beginSafeShutdown() {
       : await dialog.showMessageBox(options);
     if (response !== 1) {
       shutdownInProgress = false;
-      return;
+      return false;
     }
   }
 
   allowWindowClose = true;
+  if (restart) app.relaunch();
   closeAllWindows();
+  return true;
 }
 
 function createWindows() {
@@ -384,8 +396,27 @@ ipcMain.handle('media:get-diagnostics', async () => {
     hardwareAcceleration: app.isHardwareAccelerationEnabled(),
     gpuFeatureStatus: app.getGPUFeatureStatus(),
     gpuInfo,
+    activeGpuBackend,
   };
 });
+
+ipcMain.handle('runtime:get-config', () => ({
+  ...runtimeConfig,
+  activeGpuBackend,
+  overriddenByEnvironment: ['auto', 'd3d11', 'vulkan', 'software']
+    .includes(String(process.env.HERDPLAYER_GPU_BACKEND || '').toLowerCase()),
+}));
+
+ipcMain.handle('runtime:set-gpu-backend', (_event, gpuBackend) => {
+  runtimeConfig = writeRuntimeConfig(runtimeConfigPath, normalizeRuntimeConfig({ gpuBackend }));
+  return {
+    ...runtimeConfig,
+    activeGpuBackend,
+    restartRequired: runtimeConfig.gpuBackend !== activeGpuBackend,
+  };
+});
+
+ipcMain.handle('runtime:restart', () => beginSafeShutdown({ restart: true }));
 
 app.whenReady().then(async () => {
   const result = await verifyToken();
