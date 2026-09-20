@@ -147,7 +147,7 @@ Acceptance criteria:
 - Changing speed during a pattern does not jump to timestamp zero.
 - Queue transition timing remains aligned after one or more rate changes.
 
-### [ ] Preserve required boundary points in repeated and queued patterns
+### [x] Preserve required boundary points in repeated and queued patterns
 
 Affected: `expandActions()`, `buildPatternPoints()`, `buildBuffer()`, and
 `addPattern()` in `js/queue-app.js`.

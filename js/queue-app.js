@@ -1,5 +1,11 @@
 import { getAccentRgb, onPrefChange } from './prefs-app.js';
 import { ScriptTimeCountdown } from './depletion-clock.js';
+import {
+  appendDistinctPoints,
+  buildRepeatedPatternPoints,
+  expandActions,
+  pointsAfterBoundary,
+} from './queue-patterns.js';
 
 const TARGET_PER_PATTERN_MS = 8000;
 
@@ -79,22 +85,6 @@ function drawWaveform(canvas, actions) {
   }
 }
 
-// Expand a pattern's action array into N seamless repeats.
-// actions: [{at, pos}] for one cycle
-function expandActions(actions, period, repeats) {
-  const out = [];
-  for (let r = 0; r < repeats; r++) {
-    const offset = r * period;
-    // Skip the first point of each repeat after the first — it duplicates the
-    // previous cycle's last timestamp.
-    const start = r === 0 ? 0 : 1;
-    for (let i = start; i < actions.length; i++) {
-      out.push({ at: offset + actions[i].at, pos: actions[i].pos });
-    }
-  }
-  return out;
-}
-
 function formatPatternName(filename) {
   return filename
     .replace(/\.funscript$/i, '')
@@ -121,6 +111,7 @@ class QueueApp {
     this.depletionClock     = new ScriptTimeCountdown();
     this.patternSlotDurations = [];    // script-time ms for each item in this.queue
     this.bufferEndScriptMs  = 0;       // total script-time ms currently in device buffer
+    this.bufferTailPoint    = null;    // last point currently represented in the logical buffer
 
     this.rateDebounceTimer = null;
     this.redrawTimer       = null;
@@ -179,20 +170,18 @@ class QueueApp {
     if (!d?.actions?.length) return { points: [], slotMs: 0 };
 
     const { actions, metadata } = d;
-    const period  = metadata?.period_ms ?? actions[actions.length - 1].at;
+    const lastActionTime = Number(actions[actions.length - 1].at) || 0;
+    const configuredPeriod = Number(metadata?.period_ms);
+    const period = configuredPeriod > 0 ? configuredPeriod : Math.max(1, lastActionTime);
     const repeats = Math.max(2, Math.ceil(TARGET_PER_PATTERN_MS / period));
-    const slotMs  = repeats * period;
-    const points  = [];
+    const { points, durationMs } = buildRepeatedPatternPoints(
+      actions,
+      period,
+      repeats,
+      offsetMs,
+    );
 
-    for (let r = 0; r < repeats; r++) {
-      const base      = offsetMs + r * period;
-      const skipFirst = r > 0; // avoid duplicate timestamp at cycle boundary
-      for (let i = skipFirst ? 1 : 0; i < actions.length; i++) {
-        points.push({ t: base + actions[i].at, x: actions[i].pos });
-      }
-    }
-
-    return { points, slotMs };
+    return { points, slotMs: durationMs };
   }
 
   // Build the full buffer for the current queue.
@@ -204,10 +193,7 @@ class QueueApp {
 
     for (const name of this.queue) {
       const { points, slotMs } = this.buildPatternPoints(name, cursor);
-      // Skip the very first point of each subsequent pattern to avoid a
-      // duplicate timestamp at the join (last point of previous = first of next).
-      const start = allPoints.length > 0 ? 1 : 0;
-      for (let i = start; i < points.length; i++) allPoints.push(points[i]);
+      appendDistinctPoints(allPoints, points);
       durations.push(slotMs);
       cursor += slotMs;
     }
@@ -229,7 +215,8 @@ class QueueApp {
 
     const { points, durations } = this.buildBuffer();
     this.patternSlotDurations = [...durations];
-    this.bufferEndScriptMs    = durations.reduce((a, b) => a + b, 0);
+    this.bufferEndScriptMs    = points.at(-1)?.t ?? 0;
+    this.bufferTailPoint      = points.at(-1) ?? null;
 
     window.electronAPI.sendFromManual({
       type: 'hsp-start',
@@ -248,6 +235,7 @@ class QueueApp {
     if (!points.length) return;
 
     this.bufferEndScriptMs = slotMs;
+    this.bufferTailPoint = points.at(-1) ?? null;
 
     window.electronAPI.sendFromManual({
       type: 'hsp-start',
@@ -336,15 +324,16 @@ class QueueApp {
 
     // Append new pattern data to the device buffer seamlessly.
     const { points, slotMs } = this.buildPatternPoints(name, this.bufferEndScriptMs);
-    if (points.length) {
-      // Skip first point to avoid timestamp collision with existing buffer end.
+    const appendPoints = pointsAfterBoundary(this.bufferTailPoint, points);
+    if (appendPoints.length) {
       window.electronAPI.sendFromManual({
         type: 'hsp-append',
-        points: points.slice(1),
+        points: appendPoints,
       });
     }
     this.patternSlotDurations.push(slotMs);
-    this.bufferEndScriptMs += slotMs;
+    this.bufferEndScriptMs = points.at(-1)?.t ?? this.bufferEndScriptMs;
+    this.bufferTailPoint = points.at(-1) ?? this.bufferTailPoint;
   }
 
   removePattern(index) {
