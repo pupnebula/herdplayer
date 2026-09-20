@@ -1,12 +1,75 @@
 const API_BASE = 'https://www.handyfeeling.com/api/handy-rest/v3';
 const HOSTING_BASE = 'https://www.handyfeeling.com/api/hosting/v2';
 
+export class HandyRequestError extends Error {
+  constructor(message, {
+    kind = 'request',
+    errorName = null,
+    code = null,
+    connected = null,
+    status = null,
+    statusText = '',
+    method = null,
+    path = null,
+    details = null,
+    response = null,
+    cause = null,
+  } = {}) {
+    super(message);
+    this.name = errorName || new.target.name;
+    this.kind = kind;
+    this.errorName = errorName;
+    this.code = code;
+    this.connected = connected;
+    this.status = status;
+    this.statusText = statusText;
+    this.method = method;
+    this.path = path;
+    this.details = details;
+    this.response = response;
+    if (cause) this.cause = cause;
+  }
+}
+
+export class HandyDeviceError extends HandyRequestError {
+  constructor(message, options = {}) {
+    super(message, { ...options, kind: 'device' });
+  }
+}
+
+export class HandyHttpError extends HandyRequestError {
+  constructor(message, options = {}) {
+    super(message, { ...options, kind: 'http' });
+  }
+}
+
+export class HandyResponseError extends HandyRequestError {
+  constructor(message, options = {}) {
+    super(message, { ...options, kind: 'response' });
+  }
+}
+
+export class HandyNetworkError extends HandyRequestError {
+  constructor(message, options = {}) {
+    super(message, { ...options, kind: 'network' });
+  }
+}
+
 export class HandyDevice {
   constructor(apiKey, connectionKey) {
     this.apiKey = apiKey;
     this.connectionKey = connectionKey;
     this.csOffset = 0;
     this.deviceOffset = 0;  // per-device script offset in ms
+    this.connected = false;
+    this.hsspReady = false;
+    this.hampReady = false;
+    this.hspReady = false;
+    this.hdspReady = false;
+    this.info = null;
+  }
+
+  clearConnectionState() {
     this.connected = false;
     this.hsspReady = false;
     this.hampReady = false;
@@ -25,17 +88,66 @@ export class HandyDevice {
       headers['Content-Type'] = 'application/json';
     }
     
-    const response = await fetch(`${API_BASE}${path}`, {
-      method,
-      headers,
-      body: body !== null ? JSON.stringify(body) : undefined,
-    });
+    let response;
+    try {
+      response = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers,
+        body: body !== null ? JSON.stringify(body) : undefined,
+      });
+    } catch (cause) {
+      throw new HandyNetworkError(
+        `Handy network request failed: ${cause?.message || 'Unknown network error'}`,
+        { method, path, cause },
+      );
+    }
 
-    const data = await response.json().catch(() => null);
+    let data = null;
+    let parseError = null;
+    try {
+      data = await response.json();
+    } catch (cause) {
+      parseError = cause;
+    }
+
+    const rawError = data?.error;
+    const error = rawError && typeof rawError === 'object' ? rawError : {};
+    const errorMessage = typeof rawError === 'string'
+      ? rawError
+      : error.message || data?.message;
+    const errorOptions = {
+      errorName: error.name || null,
+      code: error.code ?? null,
+      connected: typeof error.connected === 'boolean' ? error.connected : null,
+      status: response.status,
+      statusText: response.statusText,
+      method,
+      path,
+      details: error.data ?? null,
+      response: data,
+      cause: parseError,
+    };
 
     if (!response.ok) {
-      const msg = data?.error?.message || data?.message || `HTTP ${response.status}`;
-      throw new Error(msg);
+      const requestError = new HandyHttpError(
+        errorMessage || `Handy API request failed with HTTP ${response.status}`,
+        errorOptions,
+      );
+      if (requestError.connected === false) this.clearConnectionState();
+      throw requestError;
+    }
+
+    if (parseError || data === null || typeof data !== 'object' || Array.isArray(data)) {
+      throw new HandyResponseError('Handy API returned a malformed JSON response', errorOptions);
+    }
+
+    if (Object.hasOwn(data, 'error') && data.error !== null) {
+      const requestError = new HandyDeviceError(
+        errorMessage || 'Handy device rejected the request',
+        errorOptions,
+      );
+      if (requestError.connected === false) this.clearConnectionState();
+      throw requestError;
     }
 
     return data;
@@ -317,8 +429,9 @@ export class HandyManager {
 
   // Set up HSSP on all connected devices
   async setupHSSPAll(scriptUrl) {
+    const devices = this.connectedDevices;
     const results = await Promise.allSettled(
-      this.connectedDevices.map(async (device) => {
+      devices.map(async (device) => {
         await device.setMode(DeviceMode.HSSP);
         await device.hsspSetup(scriptUrl);
         device.hsspReady = true;
@@ -326,12 +439,8 @@ export class HandyManager {
     );
 
     // Mark failed ones
-    let idx = 0;
-    for (const device of this.connectedDevices) {
-      if (results[idx]?.status === 'rejected') {
-        device.hsspReady = false;
-      }
-      idx++;
+    for (let i = 0; i < devices.length; i++) {
+      if (results[i]?.status === 'rejected') devices[i].hsspReady = false;
     }
   }
 
@@ -361,19 +470,16 @@ export class HandyManager {
 
   // Set up HAMP on all connected devices
   async setupHAMPAll() {
+    const devices = this.connectedDevices;
     const results = await Promise.allSettled(
-      this.connectedDevices.map(async (device) => {
+      devices.map(async (device) => {
         await device.setMode(DeviceMode.HAMP);
         device.hampReady = true;
       })
     );
 
-    let idx = 0;
-    for (const device of this.connectedDevices) {
-      if (results[idx]?.status === 'rejected') {
-        device.hampReady = false;
-      }
-      idx++;
+    for (let i = 0; i < devices.length; i++) {
+      if (results[i]?.status === 'rejected') devices[i].hampReady = false;
     }
   }
 
@@ -429,20 +535,17 @@ export class HandyManager {
 
   // Set up HSP on all connected devices
   async setupHSPAll() {
+    const devices = this.connectedDevices;
     const results = await Promise.allSettled(
-      this.connectedDevices.map(async (device) => {
+      devices.map(async (device) => {
         await device.setMode(DeviceMode.HSP);
         await device.hspSetup();
         device.hspReady = true;
       })
     );
 
-    let idx = 0;
-    for (const device of this.connectedDevices) {
-      if (results[idx]?.status === 'rejected') {
-        device.hspReady = false;
-      }
-      idx++;
+    for (let i = 0; i < devices.length; i++) {
+      if (results[i]?.status === 'rejected') devices[i].hspReady = false;
     }
   }
 
@@ -477,19 +580,16 @@ export class HandyManager {
 
   // Set up HDSP on all connected devices
   async setupHDSPAll() {
+    const devices = this.connectedDevices;
     const results = await Promise.allSettled(
-      this.connectedDevices.map(async (device) => {
+      devices.map(async (device) => {
         await device.setMode(DeviceMode.HDSP);
         device.hdspReady = true;
       })
     );
 
-    let idx = 0;
-    for (const device of this.connectedDevices) {
-      if (results[idx]?.status === 'rejected') {
-        device.hdspReady = false;
-      }
-      idx++;
+    for (let i = 0; i < devices.length; i++) {
+      if (results[i]?.status === 'rejected') devices[i].hdspReady = false;
     }
   }
 

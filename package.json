@@ -5,6 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node --test tests/handy.test.mjs",
     "icon": "node scripts/generate-icon.js",
     "auth": "node scripts/auth-tools.js",
     "build": "electron-builder --win"

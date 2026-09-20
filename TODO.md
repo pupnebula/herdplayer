@@ -20,7 +20,7 @@ correct where it conflicts with verified device behavior.
 
 ## P1 - Safety and core API correctness
 
-### [ ] Detect Handy error payloads returned with HTTP 200
+### [x] Detect Handy error payloads returned with HTTP 200
 
 Affected: `js/handy.js`, especially `HandyDevice.request()`.
 
