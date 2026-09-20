@@ -228,10 +228,11 @@ class App {
   // --- File Loading ---
 
   loadVideoFile(file) {
-    const src = file.path
-      ? 'localfile:///' + file.path.replace(/\\/g, '/')
+    const filePath = nativeFilePath(file);
+    const src = filePath
+      ? 'localfile:///' + filePath.replace(/\\/g, '/')
       : URL.createObjectURL(file);
-    window.electronAPI.sendToVideo({ type: 'load-video', src, name: file.name });
+    window.electronAPI.sendToVideo({ type: 'load-video', src, name: file.name, path: filePath });
     this.dom.videoName.textContent = file.name;
     this.dom.videoName.classList.add('loaded');
   }
@@ -390,10 +391,11 @@ class App {
       .forEach(el => el.classList.toggle('active', parseInt(el.dataset.playlistIndex) === index));
 
     const { video, script } = item;
-    const src = video.path
-      ? 'localfile:///' + video.path.replace(/\\/g, '/')
+    const filePath = nativeFilePath(video);
+    const src = filePath
+      ? 'localfile:///' + filePath.replace(/\\/g, '/')
       : URL.createObjectURL(video);
-    window.electronAPI.sendToVideo({ type: 'load-video', src, name: video.name });
+    window.electronAPI.sendToVideo({ type: 'load-video', src, name: video.name, path: filePath });
     this.dom.videoName.textContent = video.name;
     this.dom.videoName.classList.add('loaded');
 
@@ -1809,6 +1811,10 @@ function clamp01(v, fallback) {
   const n = parseInt(v, 10);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(0, Math.min(100, n));
+}
+
+function nativeFilePath(file) {
+  return window.electronAPI.getPathForFile?.(file) || file?.path || '';
 }
 
 function readDeviceScalers(row) {

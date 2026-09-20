@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 // In-process bus for manual-panel messaging. The Manual / Queue UI used to
 // live in a separate Electron window and this traffic went over IPC; now it
@@ -40,6 +40,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   listPatterns: () => ipcRenderer.invoke('list-patterns'),
   readPattern:  (filename) => ipcRenderer.invoke('read-pattern', filename),
+  getPathForFile: (file) => {
+    try { return webUtils.getPathForFile(file); } catch { return ''; }
+  },
 
   prefsGetInfo:      ()       => ipcRenderer.invoke('prefs:get-info'),
   prefsOpenPath:     (p)      => ipcRenderer.invoke('prefs:open-path', p),

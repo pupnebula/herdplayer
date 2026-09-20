@@ -170,8 +170,9 @@ class VideoApp {
     for (const file of files) {
       const ext = file.name.split('.').pop().toLowerCase();
       if (['mp4', 'webm', 'ogg', 'mkv', 'avi', 'mov'].includes(ext)) {
-        const src = file.path
-          ? 'localfile:///' + file.path.replace(/\\/g, '/')
+        const filePath = window.electronAPI.getPathForFile?.(file) || file.path || '';
+        const src = filePath
+          ? 'localfile:///' + filePath.replace(/\\/g, '/')
           : URL.createObjectURL(file);
         this.loadVideo(src, file.name);
         window.electronAPI.sendToControl({ type: 'video-dropped', name: file.name });
