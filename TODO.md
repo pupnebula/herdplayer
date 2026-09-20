@@ -349,6 +349,29 @@ Implementation requirements:
 - Replace the placeholder GitHub/update links in the About panel with the real
   project URLs or remove them.
 
+### [ ] Improve settings dropdown selector legibility
+
+Affected: `.prefs-select` in `css/style.css` and select construction in
+`js/prefs-app.js`.
+
+Settings dropdowns can render their selected text, arrow, or expanded option list
+with insufficient contrast against the dark settings UI, especially where the
+platform-native menu does not inherit the application's colors consistently.
+
+Implementation requirements:
+
+- Give the closed selector, expanded options, hover/focus state, selected option,
+  and disabled state explicit foreground/background colors with clear contrast.
+- Preserve a visible keyboard-focus indicator and avoid relying on accent color
+  alone to communicate selection.
+- Verify every settings selector in the packaged Windows application with each
+  supported theme/accent combination and at common display scaling levels.
+
+Acceptance criteria:
+
+- Every dropdown label and option remains immediately readable before, during, and
+  after selection with mouse or keyboard navigation.
+
 ## P3 - Contract checks and hardening
 
 ### [ ] Verify HSP tail index base on real hardware
