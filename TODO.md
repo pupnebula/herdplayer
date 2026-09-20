@@ -375,7 +375,7 @@ periods; and a minimum number of points before uploading or streaming. Malformed
 custom data should be rejected with a useful filename-specific error rather than
 creating `NaN`, zero-period loops, or invalid HSP payloads.
 
-### [ ] Harden the local authorization mechanism or document its limits
+### [x] Harden the local authorization mechanism or document its limits
 
 Affected: `auth-config.js`, `auth.js`, and packaging configuration.
 
@@ -384,6 +384,9 @@ an enforceable security boundary against a local user who can inspect or modify 
 package. Decide whether the mechanism is only a revocation/convenience gate; if
 strong authorization is required, validate a signed entitlement that does not ship
 the signing secret and define offline/cache behavior.
+
+**Resolution:** The current mechanism is intentionally accepted as a
+revocation/convenience gate. Its limitations are known and no hardening is required.
 
 ### [ ] Add automated coverage for device protocols
 
