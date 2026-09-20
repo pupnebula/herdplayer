@@ -99,7 +99,7 @@ class QueueApp {
     this.enabled      = false;
     this.devicesReady = false;
     this.playing      = false;
-    this.playingDeviceIndices = new Set();
+    this.playingDeviceIds = new Set();
     this.patterns     = {};    // filename → parsed JSON
     this.queue        = [];    // ordered list of filenames (remaining, not yet played)
     this.playbackRate = 1.0;
@@ -430,7 +430,7 @@ class QueueApp {
           this.enabled = msg.mode === 'queue';
           if (!this.enabled) {
             this.playing = false;
-            this.playingDeviceIndices.clear();
+            this.playingDeviceIds.clear();
             this.cancelDepletion();
             this.looping = false;
           }
@@ -442,11 +442,11 @@ class QueueApp {
           this.updateStatus();
           break;
         case 'hsp-playing':
-          for (const index of msg.deviceIndices ?? []) {
-            if (msg.playing) this.playingDeviceIndices.add(index);
-            else this.playingDeviceIndices.delete(index);
+          for (const deviceId of msg.deviceIds ?? []) {
+            if (msg.playing) this.playingDeviceIds.add(deviceId);
+            else this.playingDeviceIds.delete(deviceId);
           }
-          this.playing = this.playingDeviceIndices.size > 0;
+          this.playing = this.playingDeviceIds.size > 0;
           if (!this.playing) this.cancelDepletion();
           this.updateStatus();
           break;

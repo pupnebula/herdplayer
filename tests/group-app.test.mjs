@@ -22,7 +22,7 @@ function groupHarness(beforeDelete) {
     [2, { velocity: 0, strokeMin: 0, strokeMax: 100 }],
   ]);
   app.groupPlaying = new Map([[1, true], [2, false]]);
-  app.deviceGroup = new Map([[0, 1], [1, 1]]);
+  app.deviceGroup = new Map([['device-a', 1], ['device-b', 1]]);
   app.activeGroupId = 1;
   app._beforeDeleteGroup = beforeDelete;
   app.loadGroupSettings = () => {};
@@ -33,18 +33,18 @@ function groupHarness(beforeDelete) {
 }
 
 test('a group remains intact when its active devices cannot all be stopped', async () => {
-  let requestedIndices;
-  const app = groupHarness(async (_groupId, deviceIndices) => {
-    requestedIndices = deviceIndices;
+  let requestedIds;
+  const app = groupHarness(async (_groupId, deviceIds) => {
+    requestedIds = deviceIds;
     return false;
   });
 
   await app.deleteGroup(1);
 
-  assert.deepEqual(requestedIndices, [0, 1]);
+  assert.deepEqual(requestedIds, ['device-a', 'device-b']);
   assert.equal(app.groups.has(1), true);
   assert.equal(app.groupPlaying.get(1), true);
-  assert.deepEqual([...app.deviceGroup.entries()], [[0, 1], [1, 1]]);
+  assert.deepEqual([...app.deviceGroup.entries()], [['device-a', 1], ['device-b', 1]]);
   assert.equal(app.activeGroupId, 1);
 });
 
@@ -56,6 +56,6 @@ test('a group is removed only after its devices confirm safe removal', async () 
   assert.equal(app.groups.has(1), false);
   assert.equal(app.groupSettings.has(1), false);
   assert.equal(app.groupPlaying.has(1), false);
-  assert.deepEqual([...app.deviceGroup.entries()], [[0, 2], [1, 2]]);
+  assert.deepEqual([...app.deviceGroup.entries()], [['device-a', 2], ['device-b', 2]]);
   assert.equal(app.activeGroupId, 2);
 });

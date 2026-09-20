@@ -1,4 +1,4 @@
-import { HandyManager, HandyDevice, DeviceMode } from './handy.js';
+import { HandyManager, HandyDevice, DeviceMode, createDeviceId } from './handy.js';
 import { Funscript, renderTimeline } from './funscript.js';
 import { getAccentRgb, getPref, onPrefChange, togglePref } from './prefs-app.js';
 
@@ -545,15 +545,15 @@ class App {
         case 'queue-rate-change':
           return this.hspSetRate(msg.rate);
         case 'hsp-start-devices':
-          return this.hspStartDevices(msg.tag, msg.deviceIndices, msg.points);
+          return this.hspStartDevices(msg.tag, msg.deviceIds, msg.points);
         case 'hsp-stop-devices':
-          return this.hspStopDevices(msg.tag, msg.deviceIndices);
+          return this.hspStopDevices(msg.tag, msg.deviceIds);
         case 'hamp-start-devices':
-          return this.hampStartDevices(msg.tag, msg.deviceIndices, msg.velocity, msg.strokeMin, msg.strokeMax);
+          return this.hampStartDevices(msg.tag, msg.deviceIds, msg.velocity, msg.strokeMin, msg.strokeMax);
         case 'hamp-update-devices':
-          return this.hampUpdateDevices(msg.deviceIndices, msg.velocity, msg.strokeMin, msg.strokeMax);
+          return this.hampUpdateDevices(msg.deviceIds, msg.velocity, msg.strokeMin, msg.strokeMax);
         case 'hamp-stop-devices':
-          return this.hampStopDevices(msg.tag, msg.deviceIndices);
+          return this.hampStopDevices(msg.tag, msg.deviceIds);
         case 'hdsp-move':
           return this.hdspMove(msg.position, msg.duration);
       }
@@ -566,13 +566,13 @@ class App {
     const devices = [];
     rows.forEach((row, i) => {
       const device = row._device;
+      if (!device || !this.manager.getDeviceById(device.id)) return;
       const isReady = this.mode === 'hamp' ? device?.hampReady : device?.hspReady;
-      if (!isReady) return;
       const nickname = row.querySelector('.device-nickname-input')?.value.trim();
       devices.push({
-        index: i,
+        id: device.id,
         name: nickname || device.info?.hw_model_name || `Device ${i + 1}`,
-        ready: true,
+        ready: Boolean(isReady),
       });
     });
     window.electronAPI.sendToManual({ type: 'devices-updated', devices });
@@ -582,10 +582,16 @@ class App {
     return summary.succeeded.map(result => result.device);
   }
 
-  successfulDeviceIndices(summary) {
+  successfulDeviceIds(summary) {
     return summary.succeeded
-      .map(result => result.deviceIndex)
-      .filter(index => index >= 0);
+      .map(result => result.deviceId)
+      .filter(Boolean);
+  }
+
+  devicesById(deviceIds) {
+    return [...new Set(Array.isArray(deviceIds) ? deviceIds : [])]
+      .map(id => this.manager.getDeviceById(id))
+      .filter(Boolean);
   }
 
   markProtocolActive(protocol, summary) {
@@ -607,21 +613,21 @@ class App {
   }
 
   notifyProtocolStopped(protocol, summary) {
-    const deviceIndices = this.successfulDeviceIndices(summary);
-    if (deviceIndices.length === 0) return;
+    const deviceIds = this.successfulDeviceIds(summary);
+    if (deviceIds.length === 0) return;
     if (protocol === 'hsp') {
-      window.electronAPI.sendToManual({ type: 'hsp-playing', deviceIndices, playing: false });
+      window.electronAPI.sendToManual({ type: 'hsp-playing', deviceIds, playing: false });
       window.electronAPI.sendToManual({
         type: 'hsp-playing-devices',
         tag: null,
-        deviceIndices,
+        deviceIds,
         playing: false,
       });
     } else if (protocol === 'hamp') {
       window.electronAPI.sendToManual({
         type: 'hamp-playing-devices',
         tag: null,
-        deviceIndices,
+        deviceIds,
         playing: false,
       });
     }
@@ -697,21 +703,19 @@ class App {
     this.toast(`${label} reached ${summary.successCount}/${requestedCount} device(s); ${failed} failed`, 'error');
   }
 
-  async hspStartDevices(tag, deviceIndices, points) {
-    const devices = deviceIndices
-      .map(i => this.manager.devices[i])
-      .filter(d => d?.hspReady);
+  async hspStartDevices(tag, deviceIds, points) {
+    const devices = this.devicesById(deviceIds).filter(device => device.hspReady);
     if (devices.length === 0) return;
     try {
       this.openHspSSE();
       const summary = await this.manager.hspStartStreamAll(points, true, 1.0, devices);
-      const succeeded = this.successfulDeviceIndices(summary);
+      const succeeded = this.successfulDeviceIds(summary);
       this.markProtocolActive('hsp', summary);
       if (succeeded.length > 0) {
         window.electronAPI.sendToManual({
           type: 'hsp-playing-devices',
           tag,
-          deviceIndices: succeeded,
+          deviceIds: succeeded,
           playing: true,
         });
       }
@@ -721,28 +725,26 @@ class App {
     }
   }
 
-  async hspStopDevices(tag, deviceIndices) {
-    const devices = deviceIndices
-      .map(i => this.manager.devices[i])
-      .filter(Boolean);
-    if (devices.length === 0) return { ok: true, stoppedDeviceIndices: [] };
+  async hspStopDevices(tag, deviceIds) {
+    const devices = this.devicesById(deviceIds);
+    if (devices.length === 0) return { ok: true, stoppedDeviceIds: [] };
     try {
       const summary = await this.manager.broadcast('Group HSP stop', devices, d => d.hspStop());
-      const succeeded = this.successfulDeviceIndices(summary);
+      const succeeded = this.successfulDeviceIds(summary);
       this.markProtocolStopped('hsp', summary);
       if (succeeded.length > 0) {
         window.electronAPI.sendToManual({
           type: 'hsp-playing-devices',
           tag,
-          deviceIndices: succeeded,
+          deviceIds: succeeded,
           playing: false,
         });
       }
       this.reportPartialFailure(summary, 'HSP stop', devices.length);
-      return { ok: summary.ok, stoppedDeviceIndices: succeeded };
+      return { ok: summary.ok, stoppedDeviceIds: succeeded };
     } catch (err) {
       this.toast(`HSP stop error: ${err.message}`, 'error');
-      return { ok: false, stoppedDeviceIndices: [], error: err.message };
+      return { ok: false, stoppedDeviceIds: [], error: err.message };
     }
   }
 
@@ -785,10 +787,8 @@ class App {
     return this._scaleForDevice(velocity, d.manualSpeedMin, d.manualSpeedMax);
   }
 
-  async hampStartDevices(tag, deviceIndices, velocity, strokeMin, strokeMax) {
-    const devices = deviceIndices
-      .map(i => this.manager.devices[i])
-      .filter(d => d?.hampReady);
+  async hampStartDevices(tag, deviceIds, velocity, strokeMin, strokeMax) {
+    const devices = this.devicesById(deviceIds).filter(device => device.hampReady);
     if (devices.length === 0) return;
     try {
       const velocitySummary = await this.manager.broadcast(
@@ -809,13 +809,13 @@ class App {
         this.successfulDevices(strokeSummary),
         d => d.hampStart(),
       );
-      const succeeded = this.successfulDeviceIndices(startSummary);
+      const succeeded = this.successfulDeviceIds(startSummary);
       this.markProtocolActive('hamp', startSummary);
       if (succeeded.length > 0) {
         window.electronAPI.sendToManual({
           type: 'hamp-playing-devices',
           tag,
-          deviceIndices: succeeded,
+          deviceIds: succeeded,
           playing: true,
         });
       }
@@ -825,10 +825,8 @@ class App {
     }
   }
 
-  async hampUpdateDevices(deviceIndices, velocity, strokeMin, strokeMax) {
-    const devices = deviceIndices
-      .map(i => this.manager.devices[i])
-      .filter(d => d?.hampReady);
+  async hampUpdateDevices(deviceIds, velocity, strokeMin, strokeMax) {
+    const devices = this.devicesById(deviceIds).filter(device => device.hampReady);
     if (devices.length === 0) return;
     try {
       const velocitySummary = await this.manager.broadcast(
@@ -850,28 +848,26 @@ class App {
     }
   }
 
-  async hampStopDevices(tag, deviceIndices) {
-    const devices = deviceIndices
-      .map(i => this.manager.devices[i])
-      .filter(Boolean);
-    if (devices.length === 0) return { ok: true, stoppedDeviceIndices: [] };
+  async hampStopDevices(tag, deviceIds) {
+    const devices = this.devicesById(deviceIds);
+    if (devices.length === 0) return { ok: true, stoppedDeviceIds: [] };
     try {
       const summary = await this.manager.broadcast('Group HAMP stop', devices, d => d.hampStop());
-      const succeeded = this.successfulDeviceIndices(summary);
+      const succeeded = this.successfulDeviceIds(summary);
       this.markProtocolStopped('hamp', summary);
       if (succeeded.length > 0) {
         window.electronAPI.sendToManual({
           type: 'hamp-playing-devices',
           tag,
-          deviceIndices: succeeded,
+          deviceIds: succeeded,
           playing: false,
         });
       }
       this.reportPartialFailure(summary, 'HAMP stop', devices.length);
-      return { ok: summary.ok, stoppedDeviceIndices: succeeded };
+      return { ok: summary.ok, stoppedDeviceIds: succeeded };
     } catch (err) {
       this.toast(`HAMP stop error: ${err.message}`, 'error');
-      return { ok: false, stoppedDeviceIndices: [], error: err.message };
+      return { ok: false, stoppedDeviceIds: [], error: err.message };
     }
   }
 
@@ -940,7 +936,7 @@ class App {
       this.markProtocolActive('hsp', summary);
       window.electronAPI.sendToManual({
         type: 'hsp-playing',
-        deviceIndices: this.successfulDeviceIndices(summary),
+        deviceIds: this.successfulDeviceIds(summary),
         playing: true,
       });
       this.reportPartialFailure(summary, 'HSP start', requestedCount);
@@ -956,11 +952,11 @@ class App {
     }
     try {
       const summary = await this.manager.hspStopAll();
-      const succeeded = this.successfulDeviceIndices(summary);
+      const succeeded = this.successfulDeviceIds(summary);
       this.markProtocolStopped('hsp', summary);
       window.electronAPI.sendToManual({
         type: 'hsp-playing',
-        deviceIndices: succeeded,
+        deviceIds: succeeded,
         playing: false,
       });
       if (summary.ok) {
@@ -1259,7 +1255,7 @@ class App {
 
   // --- Device List UI ---
 
-  addDeviceRow(connectionKey = '', deviceOffset = 0, nickname = '', manualScaler = null, settingsCollapsed = true) {
+  addDeviceRow(connectionKey = '', deviceOffset = 0, nickname = '', manualScaler = null, settingsCollapsed = true, deviceId = createDeviceId()) {
     const ms = {
       strokeMin: clamp01(manualScaler?.strokeMin, 0),
       strokeMax: clamp01(manualScaler?.strokeMax, 100),
@@ -1267,9 +1263,15 @@ class App {
       speedMax:  clamp01(manualScaler?.speedMax,  100),
     };
     const index = this.dom.devicesList.children.length;
+    const existingIds = new Set(
+      Array.from(this.dom.devicesList.querySelectorAll('.device-row'), candidate => candidate.dataset.deviceId)
+    );
+    let stableId = typeof deviceId === 'string' && deviceId ? deviceId : createDeviceId();
+    while (existingIds.has(stableId)) stableId = createDeviceId();
     const row = document.createElement('div');
     row.className = 'device-row';
     row.dataset.index = index;
+    row.dataset.deviceId = stableId;
 
     const header = document.createElement('div');
     header.className = 'device-row-header';
@@ -1425,8 +1427,7 @@ class App {
 
   async removeDeviceRow(row) {
     const device = row._device;
-    const managerIndex = device ? this.manager.devices.indexOf(device) : -1;
-    if (device && managerIndex >= 0) {
+    if (device && this.manager.getDeviceById(device.id)) {
       const stopResult = await this.stopActiveProtocols([device]);
       if (!stopResult.ok) {
         this.toast(
@@ -1435,7 +1436,7 @@ class App {
         );
         return false;
       }
-      this.manager.removeDevice(managerIndex);
+      this.manager.removeDeviceById(device.id);
       for (const active of Object.values(this.activeProtocolDevices)) active.delete(device);
     }
 
@@ -1508,22 +1509,22 @@ class App {
     if (!device?.hsspReady || !this.isPlaying) return;
 
     // Show indicator immediately so the user sees feedback on every click
-    const rowIndex = row.dataset.index;
-    this.setDeviceRowStatus(rowIndex, 'syncing', 'Updating...');
+    const deviceId = row.dataset.deviceId;
+    this.setDeviceRowStatus(deviceId, 'syncing', 'Updating...');
 
     // Debounce: wait until clicks settle before actually re-syncing the device
     clearTimeout(row._offsetSyncTimer);
     row._offsetSyncTimer = setTimeout(async () => {
       if (!this.isPlaying) {
-        this.setDeviceRowStatus(rowIndex, 'connected', `${device.info?.hw_model_name || 'Handy'} (${Math.round(device.csOffset)}ms)`);
+        this.setDeviceRowStatus(deviceId, 'connected', `${device.info?.hw_model_name || 'Handy'} (${Math.round(device.csOffset)}ms)`);
         return;
       }
       try {
         await device.hsspStop();
         await device.hsspPlay(this.currentTime * 1000 + this.offset + device.deviceOffset);
-        this.setDeviceRowStatus(rowIndex, 'connected', `${device.info?.hw_model_name || 'Handy'} (${Math.round(device.csOffset)}ms)`);
+        this.setDeviceRowStatus(deviceId, 'connected', `${device.info?.hw_model_name || 'Handy'} (${Math.round(device.csOffset)}ms)`);
       } catch {
-        this.setDeviceRowStatus(rowIndex, 'error', 'Sync error');
+        this.setDeviceRowStatus(deviceId, 'error', 'Sync error');
       }
     }, 500);
   }
@@ -1542,8 +1543,9 @@ class App {
       .filter(k => k.length > 0);
   }
 
-  setDeviceRowStatus(index, statusClass, text) {
-    const row = this.dom.devicesList.querySelector(`.device-row[data-index="${index}"]`);
+  setDeviceRowStatus(deviceId, statusClass, text) {
+    const row = Array.from(this.dom.devicesList.querySelectorAll('.device-row'))
+      .find(candidate => candidate.dataset.deviceId === deviceId);
     if (!row) return;
     const dot = row.querySelector('.status-dot');
     dot.className = `status-dot ${statusClass}`;
@@ -1588,20 +1590,29 @@ class App {
     const nicknamesJson = localStorage.getItem('herdplayer_deviceNicknames');
     const scalersJson  = localStorage.getItem('herdplayer_deviceManualScalers');
     const collapsedJson = localStorage.getItem('herdplayer_deviceSettingsCollapsed');
+    const idsJson = localStorage.getItem('herdplayer_deviceIds');
 
     if (apiKey) this.dom.apiKey.value = apiKey;
 
-    let keys = [], offsets = [], nicknames = [], scalers = [], collapsed = [];
+    let keys = [], offsets = [], nicknames = [], scalers = [], collapsed = [], ids = [];
     try { keys = JSON.parse(keysJson) || []; } catch { /* ignore */ }
     try { offsets = JSON.parse(offsetsJson) || []; } catch { /* ignore */ }
     try { nicknames = JSON.parse(nicknamesJson) || []; } catch { /* ignore */ }
     try { scalers = JSON.parse(scalersJson) || []; } catch { /* ignore */ }
     try { collapsed = JSON.parse(collapsedJson) || []; } catch { /* ignore */ }
+    try { ids = JSON.parse(idsJson) || []; } catch { /* ignore */ }
 
     if (keys.length === 0) keys = [''];
     for (let i = 0; i < keys.length; i++) {
       const c = collapsed[i];
-      this.addDeviceRow(keys[i], offsets[i] || 0, nicknames[i] || '', scalers[i] || null, c == null ? true : !!c);
+      this.addDeviceRow(
+        keys[i],
+        offsets[i] || 0,
+        nicknames[i] || '',
+        scalers[i] || null,
+        c == null ? true : !!c,
+        typeof ids[i] === 'string' && ids[i] ? ids[i] : createDeviceId(),
+      );
     }
 
   }
@@ -1625,6 +1636,7 @@ class App {
     localStorage.setItem('herdplayer_deviceSettingsCollapsed', JSON.stringify(
       rowArr.map(r => r.classList.contains('settings-collapsed'))
     ));
+    localStorage.setItem('herdplayer_deviceIds', JSON.stringify(rowArr.map(r => r.dataset.deviceId)));
   }
 
   // --- Connection ---
@@ -1640,14 +1652,13 @@ class App {
     this.manager.setApiKey(apiKey);
     this.manager.devices = [];
     const rows = this.dom.devicesList.querySelectorAll('.device-row');
-    const rowMap = [];
 
-    rows.forEach((row, rowIdx) => {
+    rows.forEach((row) => {
       const key = row.querySelector('.device-key-input').value.trim();
       if (!key) return;
       let device = row._device;
       if (device) { device.apiKey = apiKey; device.connectionKey = key; }
-      else { device = new HandyDevice(apiKey, key); row._device = device; }
+      else { device = new HandyDevice(apiKey, key, row.dataset.deviceId); row._device = device; }
       device.deviceOffset = parseInt(row.querySelector('.device-offset-input')?.value, 10) || 0;
       const s = readDeviceScalers(row);
       device.manualStrokeMin = s.strokeMin;
@@ -1657,24 +1668,22 @@ class App {
       device.connected = false;
       device.hsspReady = false;
       this.manager.devices.push(device);
-      rowMap.push(rowIdx);
     });
 
     this.dom.connectBtn.disabled = true;
 
     try {
-      await this.manager.connectAll((deviceIdx, status, ...extra) => {
-        const rowIdx = rowMap[deviceIdx];
+      await this.manager.connectAll((deviceId, status, ...extra) => {
         switch (status) {
-          case 'connecting': this.setDeviceRowStatus(rowIdx, 'syncing', 'Connecting...'); break;
-          case 'not_found': this.setDeviceRowStatus(rowIdx, 'error', 'Not found'); break;
-          case 'syncing': this.setDeviceRowStatus(rowIdx, 'syncing', `Syncing ${extra[0]}/${extra[1]}`); break;
+          case 'connecting': this.setDeviceRowStatus(deviceId, 'syncing', 'Connecting...'); break;
+          case 'not_found': this.setDeviceRowStatus(deviceId, 'error', 'Not found'); break;
+          case 'syncing': this.setDeviceRowStatus(deviceId, 'syncing', `Syncing ${extra[0]}/${extra[1]}`); break;
           case 'connected': {
-            const device = this.manager.getDevice(deviceIdx);
-            this.setDeviceRowStatus(rowIdx, 'connected', `${device.info?.hw_model_name || 'Handy'} (${Math.round(device.csOffset)}ms)`);
+            const device = this.manager.getDeviceById(deviceId);
+            this.setDeviceRowStatus(deviceId, 'connected', `${device.info?.hw_model_name || 'Handy'} (${Math.round(device.csOffset)}ms)`);
             break;
           }
-          case 'error': this.setDeviceRowStatus(rowIdx, 'error', `Error: ${extra[0]}`); break;
+          case 'error': this.setDeviceRowStatus(deviceId, 'error', `Error: ${extra[0]}`); break;
         }
       });
     } catch (err) {
@@ -1708,13 +1717,14 @@ class App {
     if (!apiKey) { this.toast('Enter an Application ID first', 'error'); return; }
 
     const rowIndex = row.dataset.index;
+    const deviceId = row.dataset.deviceId;
     const nickname = row.querySelector('.device-nickname-input').value.trim();
     const deviceLabel = nickname || `Device #${parseInt(rowIndex) + 1}`;
     this.manager.setApiKey(apiKey);
 
     let device = row._device;
     if (device) { device.apiKey = apiKey; device.connectionKey = connectionKey; }
-    else { device = new HandyDevice(apiKey, connectionKey); row._device = device; this.manager.devices.push(device); }
+    else { device = new HandyDevice(apiKey, connectionKey, deviceId); row._device = device; this.manager.devices.push(device); }
     if (!this.manager.devices.includes(device)) this.manager.devices.push(device);
 
     device.deviceOffset = parseInt(row.querySelector('.device-offset-input')?.value, 10) || 0;
@@ -1730,19 +1740,19 @@ class App {
     device.hdspReady = false;
 
     try {
-      this.setDeviceRowStatus(rowIndex, 'syncing', 'Connecting...');
+      this.setDeviceRowStatus(deviceId, 'syncing', 'Connecting...');
       if (!await device.checkConnection()) {
-        this.setDeviceRowStatus(rowIndex, 'error', 'Not found');
+        this.setDeviceRowStatus(deviceId, 'error', 'Not found');
         this.toast(`${deviceLabel} not found`, 'error');
         this.updateConnectionSummary();
         return;
       }
-      this.setDeviceRowStatus(rowIndex, 'syncing', 'Syncing 0/30');
-      await device.calculateServerTimeOffset(30, (s, total) => this.setDeviceRowStatus(rowIndex, 'syncing', `Syncing ${s}/${total}`));
+      this.setDeviceRowStatus(deviceId, 'syncing', 'Syncing 0/30');
+      await device.calculateServerTimeOffset(30, (s, total) => this.setDeviceRowStatus(deviceId, 'syncing', `Syncing ${s}/${total}`));
       try { await device.getInfo(); } catch { /* ok */ }
 
       if (this.mode === 'hssp' && this.scriptHostUrl) {
-        this.setDeviceRowStatus(rowIndex, 'syncing', 'Setting up script...');
+        this.setDeviceRowStatus(deviceId, 'syncing', 'Setting up script...');
         await device.setMode(DeviceMode.HSSP);
         await device.hsspSetup(this.scriptHostUrl);
         device.hsspReady = true;
@@ -1750,7 +1760,7 @@ class App {
           await device.hsspPlay(this.currentTime * 1000 + this.offset + device.deviceOffset);
         }
       } else if (this.mode === 'hsp' || this.mode === 'queue') {
-        this.setDeviceRowStatus(rowIndex, 'syncing', 'Setting up HSP...');
+        this.setDeviceRowStatus(deviceId, 'syncing', 'Setting up HSP...');
         const resumableStream = device.hspStream?.active === true;
         await device.setMode(DeviceMode.HSP);
         await device.hspSetup();
@@ -1765,35 +1775,34 @@ class App {
               playbackRate: this.hspPlaybackRate,
             });
           }
-          const deviceIndex = this.manager.devices.indexOf(device);
           this.activeProtocolDevices.hsp.add(device);
           window.electronAPI.sendToManual({
             type: 'hsp-playing',
-            deviceIndices: [deviceIndex],
+            deviceIds: [device.id],
             playing: true,
           });
         }
         window.electronAPI.sendToManual({ type: 'hsp-ready', ready: this.manager.anyHspReady });
         this.sendDevicesUpdate();
       } else if (this.mode === 'hamp') {
-        this.setDeviceRowStatus(rowIndex, 'syncing', 'Setting up HAMP...');
+        this.setDeviceRowStatus(deviceId, 'syncing', 'Setting up HAMP...');
         await device.setMode(DeviceMode.HAMP);
         device.hampReady = true;
         window.electronAPI.sendToManual({ type: 'hamp-ready', ready: this.manager.anyHampReady });
-        this.sendDevicesUpdate();
       } else if (this.mode === 'direct') {
-        this.setDeviceRowStatus(rowIndex, 'syncing', 'Setting up Direct...');
+        this.setDeviceRowStatus(deviceId, 'syncing', 'Setting up Direct...');
         await device.setMode(DeviceMode.HDSP);
         device.hdspReady = true;
         window.electronAPI.sendToManual({ type: 'hdsp-ready', ready: this.manager.anyHdspReady });
       }
 
-      this.setDeviceRowStatus(rowIndex, 'connected', `${device.info?.hw_model_name || 'Handy'} (${Math.round(device.csOffset)}ms)`);
+      this.setDeviceRowStatus(deviceId, 'connected', `${device.info?.hw_model_name || 'Handy'} (${Math.round(device.csOffset)}ms)`);
       this.toast(`${deviceLabel} reconnected`, 'success');
     } catch (err) {
-      this.setDeviceRowStatus(rowIndex, 'error', `Error: ${err.message}`);
+      this.setDeviceRowStatus(deviceId, 'error', `Error: ${err.message}`);
       this.toast(`Reconnect failed: ${err.message}`, 'error');
     }
+    if (this.mode === 'hamp') this.sendDevicesUpdate();
     this.updateConnectionSummary();
   }
 

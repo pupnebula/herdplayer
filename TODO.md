@@ -176,7 +176,7 @@ Acceptance criteria:
 
 ## P2 - Reliability, synchronization, and packaging
 
-### [ ] Give devices stable identities instead of mixing DOM and manager indexes
+### [x] Give devices stable identities instead of mixing DOM and manager indexes
 
 Affected: `App.connectAll()`, `sendDevicesUpdate()`, reconnect/remove handling, and
 manual group membership.
@@ -196,6 +196,10 @@ Acceptance criteria:
 
 - Blank rows, removing a middle row, and reconnecting in a different order never
   redirect a command to another connection key.
+
+**Resolution:** Device rows now own persisted unique IDs. Manager lookups, connection
+status callbacks, manual/queue IPC, playback state, and group membership all use
+those IDs; row and array indexes are limited to display/order concerns.
 
 ### [ ] Clear every protocol-ready flag during Connect All and mode changes
 

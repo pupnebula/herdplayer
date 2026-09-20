@@ -69,8 +69,14 @@ export class HandyBroadcastError extends HandyRequestError {
   }
 }
 
+export function createDeviceId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `device-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 export class HandyDevice {
-  constructor(apiKey, connectionKey) {
+  constructor(apiKey, connectionKey, id = createDeviceId()) {
+    this.id = id;
     this.apiKey = apiKey;
     this.connectionKey = connectionKey;
     this.csOffset = 0;
@@ -596,18 +602,19 @@ export class HandyManager {
     for (const d of this.devices) d.apiKey = apiKey;
   }
 
-  addDevice(connectionKey) {
-    const device = new HandyDevice(this.apiKey, connectionKey);
+  addDevice(connectionKey, id) {
+    const device = new HandyDevice(this.apiKey, connectionKey, id);
     this.devices.push(device);
     return device;
   }
 
-  removeDevice(index) {
-    this.devices.splice(index, 1);
+  removeDeviceById(id) {
+    const index = this.devices.findIndex(device => device.id === id);
+    if (index >= 0) this.devices.splice(index, 1);
   }
 
-  getDevice(index) {
-    return this.devices[index];
+  getDeviceById(id) {
+    return this.devices.find(device => device.id === id);
   }
 
   get connectedDevices() {
@@ -659,7 +666,7 @@ export class HandyManager {
       const device = targets[index];
       const base = {
         device,
-        deviceIndex: this.devices.indexOf(device),
+        deviceId: device?.id ?? null,
         connectionKey: device?.connectionKey ?? null,
         status: result.status,
       };
@@ -684,21 +691,21 @@ export class HandyManager {
     return summary;
   }
 
-  // Connect all devices in parallel. onDeviceStatus(index, status, ...extra) for per-device UI.
+  // Connect all devices in parallel. Status callbacks use stable device IDs.
   async connectAll(onDeviceStatus) {
     return this.broadcast(
       'Connect',
       this.devices,
-      async (device, i) => {
+      async (device) => {
         device.apiKey = this.apiKey;
         let statusReported = false;
 
         try {
-          if (onDeviceStatus) onDeviceStatus(i, 'connecting');
+          if (onDeviceStatus) onDeviceStatus(device.id, 'connecting');
           const connected = await device.checkConnection();
           if (!connected) {
             device.clearConnectionState();
-            if (onDeviceStatus) onDeviceStatus(i, 'not_found');
+            if (onDeviceStatus) onDeviceStatus(device.id, 'not_found');
             statusReported = true;
             throw new HandyDeviceError('Device not connected', {
               errorName: 'DeviceNotConnected',
@@ -706,9 +713,9 @@ export class HandyManager {
             });
           }
 
-          if (onDeviceStatus) onDeviceStatus(i, 'syncing', 0, 30);
+          if (onDeviceStatus) onDeviceStatus(device.id, 'syncing', 0, 30);
           await device.calculateServerTimeOffset(30, (s, total) => {
-            if (onDeviceStatus) onDeviceStatus(i, 'syncing', s, total);
+            if (onDeviceStatus) onDeviceStatus(device.id, 'syncing', s, total);
           });
 
           try {
@@ -719,9 +726,9 @@ export class HandyManager {
             if (!device.connected) throw err;
           }
 
-          if (onDeviceStatus) onDeviceStatus(i, 'connected');
+          if (onDeviceStatus) onDeviceStatus(device.id, 'connected');
         } catch (err) {
-          if (!statusReported && onDeviceStatus) onDeviceStatus(i, 'error', err.message);
+          if (!statusReported && onDeviceStatus) onDeviceStatus(device.id, 'error', err.message);
           throw err;
         }
       }

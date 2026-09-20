@@ -196,8 +196,8 @@ test('a disconnected setup failure cannot mark a succeeding device unready', asy
 
 test('broadcast summaries report every successful device', async () => {
   const manager = new HandyManager();
-  const first = manager.addDevice('first');
-  const second = manager.addDevice('second');
+  const first = manager.addDevice('first', 'device-a');
+  const second = manager.addDevice('second', 'device-b');
   first.hampReady = true;
   second.hampReady = true;
   first.hampStop = async () => ({ stopped: 'first' });
@@ -211,10 +211,42 @@ test('broadcast summaries report every successful device', async () => {
   assert.equal(summary.failureCount, 0);
   assert.equal(summary.ok, true);
   assert.equal(summary.partial, false);
-  assert.deepEqual(summary.succeeded.map(result => result.deviceIndex), [0, 1]);
+  assert.deepEqual(summary.succeeded.map(result => result.deviceId), ['device-a', 'device-b']);
   assert.deepEqual(summary.succeeded.map(result => result.value), [
     { stopped: 'first' },
     { stopped: 'second' },
+  ]);
+});
+
+test('stable IDs resolve the same devices after manager reordering', () => {
+  const manager = new HandyManager();
+  const first = manager.addDevice('first', 'device-a');
+  const second = manager.addDevice('second', 'device-b');
+
+  manager.devices = [second, first];
+
+  assert.equal(manager.getDeviceById('device-a'), first);
+  assert.equal(manager.getDeviceById('device-b'), second);
+});
+
+test('connection status callbacks identify devices by stable ID', async () => {
+  const manager = new HandyManager();
+  const device = manager.addDevice('connection-key', 'device-a');
+  device.checkConnection = async () => {
+    device.connected = true;
+    return true;
+  };
+  device.calculateServerTimeOffset = async (_samples, onProgress) => onProgress(1, 1);
+  device.getInfo = async () => ({});
+  const statuses = [];
+
+  await manager.connectAll((deviceId, status) => statuses.push([deviceId, status]));
+
+  assert.deepEqual(statuses, [
+    ['device-a', 'connecting'],
+    ['device-a', 'syncing'],
+    ['device-a', 'syncing'],
+    ['device-a', 'connected'],
   ]);
 });
 

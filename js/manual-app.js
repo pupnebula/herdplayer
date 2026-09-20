@@ -6,8 +6,8 @@ class ManualApp extends GroupApp {
   constructor() {
     super();
     this.enabled = false;
-    this.devices = []; // [{ index, name, ready }] received via IPC
-    this.playingDeviceIndices = new Set();
+    this.devices = []; // [{ id, name, ready }] received via IPC
+    this.playingDeviceIds = new Set();
     this._focusedBound = 'max'; // 'min' | 'max' — which stroke slider keyboard length-keys adjust
 
     this.dom = {
@@ -232,25 +232,25 @@ class ManualApp extends GroupApp {
 
   // ── Abstract hook implementations ─────────────────────────────────
 
-  _getDevice(index) {
-    return this.devices.find(d => d.index === index) ?? null;
+  _getDevice(deviceId) {
+    return this.devices.find(device => device.id === deviceId) ?? null;
   }
 
   _anyKnownDevices() { return this.devices.length > 0; }
 
   _applyPlayingDeviceUpdate(msg) {
-    const indices = Array.isArray(msg.deviceIndices) ? msg.deviceIndices : [];
-    for (const index of indices) {
-      if (msg.playing) this.playingDeviceIndices.add(index);
-      else this.playingDeviceIndices.delete(index);
+    const deviceIds = Array.isArray(msg.deviceIds) ? msg.deviceIds : [];
+    for (const deviceId of deviceIds) {
+      if (msg.playing) this.playingDeviceIds.add(deviceId);
+      else this.playingDeviceIds.delete(deviceId);
     }
     this._syncGroupPlayingState();
   }
 
   _syncGroupPlayingState() {
     for (const groupId of this.groups.keys()) {
-      const playing = this.getGroupDeviceIndices(groupId)
-        .some(index => this.playingDeviceIndices.has(index));
+      const playing = this.getGroupDeviceIds(groupId)
+        .some(deviceId => this.playingDeviceIds.has(deviceId));
       this.groupPlaying.set(groupId, playing);
     }
   }
@@ -267,7 +267,7 @@ class ManualApp extends GroupApp {
     window.electronAPI.sendFromManual({
       type: 'hamp-start-devices',
       tag: this.activeGroupId,
-      deviceIndices: this.getReadyIndicesForGroup(this.activeGroupId),
+      deviceIds: this.getReadyDeviceIdsForGroup(this.activeGroupId),
       velocity: parseInt(this.dom.velocitySlider.value, 10),
       strokeMin: parseInt(this.dom.strokeMinSlider.value, 10),
       strokeMax: parseInt(this.dom.strokeMaxSlider.value, 10),
@@ -278,7 +278,7 @@ class ManualApp extends GroupApp {
     window.electronAPI.sendFromManual({
       type: 'hamp-stop-devices',
       tag: this.activeGroupId,
-      deviceIndices: this.getReadyIndicesForGroup(this.activeGroupId),
+      deviceIds: this.getReadyDeviceIdsForGroup(this.activeGroupId),
     });
   }
 
@@ -286,52 +286,52 @@ class ManualApp extends GroupApp {
     window.electronAPI.sendFromManual({
       type: 'hamp-update-devices',
       tag: this.activeGroupId,
-      deviceIndices: this.getReadyIndicesForGroup(this.activeGroupId),
+      deviceIds: this.getReadyDeviceIdsForGroup(this.activeGroupId),
       velocity: parseInt(this.dom.velocitySlider.value, 10),
       strokeMin: parseInt(this.dom.strokeMinSlider.value, 10),
       strokeMax: parseInt(this.dom.strokeMaxSlider.value, 10),
     });
   }
 
-  _doMoveStart(deviceIndex, groupId, settings) {
+  _doMoveStart(deviceId, groupId, settings) {
     window.electronAPI.sendFromManual({
       type: 'hamp-start-devices',
       tag: groupId,
-      deviceIndices: [deviceIndex],
+      deviceIds: [deviceId],
       velocity: settings.velocity,
       strokeMin: settings.strokeMin,
       strokeMax: settings.strokeMax,
     });
   }
 
-  _doMoveStop(deviceIndex, groupId) {
+  _doMoveStop(deviceId, groupId) {
     window.electronAPI.sendFromManual({
       type: 'hamp-stop-devices',
       tag: groupId,
-      deviceIndices: [deviceIndex],
+      deviceIds: [deviceId],
     });
   }
 
-  _doMoveUpdate(deviceIndex, groupId, settings) {
+  _doMoveUpdate(deviceId, groupId, settings) {
     window.electronAPI.sendFromManual({
       type: 'hamp-update-devices',
       tag: groupId,
-      deviceIndices: [deviceIndex],
+      deviceIds: [deviceId],
       velocity: settings.velocity,
       strokeMin: settings.strokeMin,
       strokeMax: settings.strokeMax,
     });
   }
 
-  async _beforeDeleteGroup(groupId, deviceIndices) {
-    const playingIndices = deviceIndices.filter(index => this.playingDeviceIndices.has(index));
-    if (playingIndices.length === 0) return true;
+  async _beforeDeleteGroup(groupId, deviceIds) {
+    const playingIds = deviceIds.filter(deviceId => this.playingDeviceIds.has(deviceId));
+    if (playingIds.length === 0) return true;
 
     try {
       const result = await window.electronAPI.sendFromManual({
         type: 'hamp-stop-devices',
         tag: groupId,
-        deviceIndices: playingIndices,
+        deviceIds: playingIds,
       });
       return result?.ok === true;
     } catch {
@@ -350,7 +350,7 @@ class ManualApp extends GroupApp {
             this.clearActivePreset();
             this.devices = [];
             this.deviceGroup.clear();
-            this.playingDeviceIndices.clear();
+            this.playingDeviceIds.clear();
             this._syncGroupPlayingState();
             this.renderCards();
           }
@@ -370,17 +370,17 @@ class ManualApp extends GroupApp {
           break;
 
         case 'devices-updated': {
-          const newIndices = new Set(msg.devices.map(d => d.index));
-          for (const [idx] of this.deviceGroup) {
-            if (!newIndices.has(idx)) this.deviceGroup.delete(idx);
+          const newIds = new Set(msg.devices.map(device => device.id));
+          for (const [deviceId] of this.deviceGroup) {
+            if (!newIds.has(deviceId)) this.deviceGroup.delete(deviceId);
           }
-          for (const idx of this.playingDeviceIndices) {
-            if (!newIndices.has(idx)) this.playingDeviceIndices.delete(idx);
+          for (const deviceId of this.playingDeviceIds) {
+            if (!newIds.has(deviceId)) this.playingDeviceIds.delete(deviceId);
           }
           const firstGroupId = [...this.groups.keys()][0];
           for (const device of msg.devices) {
-            if (!this.deviceGroup.has(device.index)) {
-              this.deviceGroup.set(device.index, firstGroupId);
+            if (!this.deviceGroup.has(device.id)) {
+              this.deviceGroup.set(device.id, firstGroupId);
             }
           }
           this.devices = msg.devices;

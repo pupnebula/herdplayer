@@ -11,7 +11,7 @@ export class GroupApp {
   _initGroupModel() {
     this.nextGroupId = 2;
     this.groups       = new Map(); // groupId → { id, name }
-    this.deviceGroup  = new Map(); // deviceIndex → groupId
+    this.deviceGroup  = new Map(); // stable deviceId → groupId
     this.groupSettings = new Map();// groupId → { velocity, strokeMin, strokeMax }
     this.groupPlaying = new Map(); // groupId → bool
     this.activeGroupId = 1;
@@ -130,8 +130,8 @@ export class GroupApp {
 
   // ── Abstract hooks (subclass implements) ─────────────────────────
 
-  // Returns { name, ready } if device at index is known/connected, otherwise null.
-  _getDevice(index) { return null; }
+  // Returns { id, name, ready } for a known device, otherwise null.
+  _getDevice(_deviceId) { return null; }
 
   // True if any devices are currently known/connected.
   _anyKnownDevices() { return false; }
@@ -148,19 +148,19 @@ export class GroupApp {
   _doUpdate() { this._doStart(); }
 
   // Start a single device that was just moved into a playing group.
-  _doMoveStart(deviceIndex, groupId, settings) {}
+  _doMoveStart(deviceId, groupId, settings) {}
 
   // Stop a single device that was just moved into a non-playing group.
-  _doMoveStop(deviceIndex, groupId) {}
+  _doMoveStop(deviceId, groupId) {}
 
   // Update params for a single device that was already playing and is
   // moving between two playing groups. Default: re-issue start.
-  _doMoveUpdate(deviceIndex, groupId, settings) {
-    this._doMoveStart(deviceIndex, groupId, settings);
+  _doMoveUpdate(deviceId, groupId, settings) {
+    this._doMoveStart(deviceId, groupId, settings);
   }
 
   // Return false to keep a group when its devices could not be made safe.
-  async _beforeDeleteGroup(_groupId, _deviceIndices) { return true; }
+  async _beforeDeleteGroup(_groupId, _deviceIds) { return true; }
 
   // Override to return a status string when the panel is globally inactive
   // (e.g. wrong mode selected). Return null to use the default flow.
@@ -178,11 +178,11 @@ export class GroupApp {
 
   async deleteGroup(id) {
     if (this.groups.size <= 1) return;
-    const deviceIndices = this.getGroupDeviceIndices(id);
-    if (!await this._beforeDeleteGroup(id, deviceIndices)) return;
+    const deviceIds = this.getGroupDeviceIds(id);
+    if (!await this._beforeDeleteGroup(id, deviceIds)) return;
     const otherGroupId = [...this.groups.keys()].find(k => k !== id);
-    for (const [idx, gid] of this.deviceGroup) {
-      if (gid === id) this.deviceGroup.set(idx, otherGroupId);
+    for (const [deviceId, gid] of this.deviceGroup) {
+      if (gid === id) this.deviceGroup.set(deviceId, otherGroupId);
     }
     this.groups.delete(id);
     this.groupSettings.delete(id);
@@ -206,8 +206,8 @@ export class GroupApp {
     this.updateStatus();
   }
 
-  moveDevice(deviceIndex, toGroupId) {
-    const fromGroupId = this.deviceGroup.get(deviceIndex);
+  moveDevice(deviceId, toGroupId) {
+    const fromGroupId = this.deviceGroup.get(deviceId);
     const wasPlaying  = this.groupPlaying.get(fromGroupId) ?? false;
 
     // If moving into the currently-active group, the live slider values may
@@ -216,9 +216,9 @@ export class GroupApp {
       this.saveSliderStateToGroup(this.activeGroupId);
     }
 
-    this.deviceGroup.set(deviceIndex, toGroupId);
+    this.deviceGroup.set(deviceId, toGroupId);
     this.renderCards();
-    const device = this._getDevice(deviceIndex);
+    const device = this._getDevice(deviceId);
     if (!device?.ready) return;
 
     const s = this.groupSettings.get(toGroupId) ?? { velocity: 0, strokeMin: 0, strokeMax: 100 };
@@ -226,22 +226,22 @@ export class GroupApp {
 
     if (nowPlaying && wasPlaying) {
       // Already in motion — just push new params, don't re-issue start.
-      this._doMoveUpdate(deviceIndex, toGroupId, s);
+      this._doMoveUpdate(deviceId, toGroupId, s);
     } else if (nowPlaying) {
-      this._doMoveStart(deviceIndex, toGroupId, s);
+      this._doMoveStart(deviceId, toGroupId, s);
     } else if (wasPlaying) {
-      this._doMoveStop(deviceIndex, toGroupId);
+      this._doMoveStop(deviceId, toGroupId);
     }
   }
 
-  getGroupDeviceIndices(groupId) {
+  getGroupDeviceIds(groupId) {
     return [...this.deviceGroup.entries()]
       .filter(([, gid]) => gid === groupId)
-      .map(([idx]) => idx);
+      .map(([deviceId]) => deviceId);
   }
 
-  getReadyIndicesForGroup(groupId) {
-    return this.getGroupDeviceIndices(groupId).filter(i => this._getDevice(i)?.ready);
+  getReadyDeviceIdsForGroup(groupId) {
+    return this.getGroupDeviceIds(groupId).filter(id => this._getDevice(id)?.ready);
   }
 
   // ── Slider state ──────────────────────────────────────────────────
@@ -284,7 +284,7 @@ export class GroupApp {
   buildCard(id, group) {
     const isSelected = id === this.activeGroupId;
     const isPlaying  = this.groupPlaying.get(id) ?? false;
-    const knownDevices = this.getGroupDeviceIndices(id).filter(i => this._getDevice(i) !== null);
+    const knownDevices = this.getGroupDeviceIds(id).filter(deviceId => this._getDevice(deviceId) !== null);
 
     const card = document.createElement('div');
     card.className = 'group-card' + (isSelected ? ' selected' : '');
@@ -325,8 +325,8 @@ export class GroupApp {
       empty.textContent = this._anyKnownDevices() ? 'Drop devices here' : 'No devices connected';
       devList.appendChild(empty);
     } else {
-      for (const idx of knownDevices) {
-        devList.appendChild(this.buildDeviceItem(idx, id));
+      for (const deviceId of knownDevices) {
+        devList.appendChild(this.buildDeviceItem(deviceId, id));
       }
     }
 
@@ -347,15 +347,15 @@ export class GroupApp {
       card.classList.remove('drag-over');
       try {
         const data = JSON.parse(e.dataTransfer.getData('application/json'));
-        if (data.fromGroupId !== id) this.moveDevice(data.deviceIndex, id);
+        if (data.fromGroupId !== id) this.moveDevice(data.deviceId, id);
       } catch { /* ignore malformed data */ }
     });
 
     return card;
   }
 
-  buildDeviceItem(idx, groupId) {
-    const device = this._getDevice(idx);
+  buildDeviceItem(deviceId, groupId) {
+    const device = this._getDevice(deviceId);
 
     const item = document.createElement('div');
     item.className = 'device-item';
@@ -370,7 +370,7 @@ export class GroupApp {
 
     const name = document.createElement('span');
     name.className = 'device-item-name';
-    name.textContent = device?.name ?? `Device ${idx + 1}`;
+    name.textContent = device?.name ?? 'Device';
 
     item.appendChild(handle);
     item.appendChild(dot);
@@ -378,7 +378,7 @@ export class GroupApp {
 
     item.addEventListener('dragstart', (e) => {
       e.stopPropagation();
-      e.dataTransfer.setData('application/json', JSON.stringify({ deviceIndex: idx, fromGroupId: groupId }));
+      e.dataTransfer.setData('application/json', JSON.stringify({ deviceId, fromGroupId: groupId }));
       e.dataTransfer.effectAllowed = 'move';
       requestAnimationFrame(() => item.classList.add('dragging'));
     });
@@ -394,7 +394,7 @@ export class GroupApp {
   }
 
   canInteractOnCurrentGroup() {
-    return this.getReadyIndicesForGroup(this.activeGroupId).length > 0;
+    return this.getReadyDeviceIdsForGroup(this.activeGroupId).length > 0;
   }
 
   // ── Presets ───────────────────────────────────────────────────────
