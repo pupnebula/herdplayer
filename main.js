@@ -186,6 +186,9 @@ function createWindows() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Playback time drives device synchronization even when another window
+      // covers the player. Do not let Chromium suspend its renderer timers.
+      backgroundThrottling: false,
     },
   });
 
@@ -238,20 +241,42 @@ const MIME_TYPES = {
 
 // Serve local video files with proper HTTP range-request semantics so
 // Chromium's media pipeline can read ahead aggressively from HDD.
-function handleLocalFile(request) {
+async function handleLocalFile(request) {
   const filePath = decodeURIComponent(request.url.slice('localfile:///'.length));
 
   let stat;
-  try { stat = fs.statSync(filePath); } catch { return new Response(null, { status: 404 }); }
+  try { stat = await fs.promises.stat(filePath); } catch { return new Response(null, { status: 404 }); }
+  if (!stat.isFile()) return new Response(null, { status: 404 });
 
   const contentType = MIME_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
   const fileSize    = stat.size;
   const rangeHeader = request.headers.get('range');
 
   if (rangeHeader) {
-    const [, s, e] = rangeHeader.match(/bytes=(\d*)-(\d*)/) || [];
-    const start = s ? parseInt(s) : 0;
-    const end   = e ? parseInt(e) : fileSize - 1;
+    const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+    if (!match || (!match[1] && !match[2])) {
+      return new Response(null, {
+        status: 416,
+        headers: { 'Content-Range': `bytes */${fileSize}` },
+      });
+    }
+    const [, s, e] = match;
+    let start;
+    let end;
+    if (!s && e) {
+      const suffixLength = Math.min(parseInt(e, 10), fileSize);
+      start = fileSize - suffixLength;
+      end = fileSize - 1;
+    } else {
+      start = s ? parseInt(s, 10) : 0;
+      end = e ? Math.min(parseInt(e, 10), fileSize - 1) : fileSize - 1;
+    }
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start > end || start >= fileSize) {
+      return new Response(null, {
+        status: 416,
+        headers: { 'Content-Range': `bytes */${fileSize}` },
+      });
+    }
     const stream = fs.createReadStream(filePath, { start, end, highWaterMark: 4 * 1024 * 1024 });
     return new Response(Readable.toWeb(stream), {
       status: 206,

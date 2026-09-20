@@ -7,6 +7,9 @@ class VideoApp {
     this.offset = 0;
     this.isPlaying = false;
     this.animFrameId = null;
+    this.videoFrameCallbackId = null;
+    this.syncTimerId = null;
+    this.lastControlsUpdate = 0;
     this.mediaName = 'video';
     this.systemDiagnostics = null;
     this.dom = {};
@@ -291,41 +294,79 @@ class VideoApp {
   // --- Animation loop ---
 
   startAnimationLoop() {
-    let lastSync = 0;
-    const update = () => {
-      this.updateUI();
-      const now = performance.now();
-      if (now - lastSync > 500) {
-        window.electronAPI.sendToControl({ type: 'time-update', currentTime: this.dom.video.currentTime });
-        lastSync = now;
+    this.stopAnimationLoop(false);
+
+    // Keep cross-window/device timing independent from rendering. Animation
+    // callbacks can stop when the window is obscured, but this clock must not.
+    this.syncTimerId = setInterval(() => {
+      window.electronAPI.sendToControl({
+        type: 'time-update',
+        currentTime: this.dom.video.currentTime,
+      });
+    }, 500);
+
+    const update = now => {
+      this.updateStrokeIndicator();
+      if (now - this.lastControlsUpdate >= 100) {
+        this.updateControls();
+        this.lastControlsUpdate = now;
       }
-      this.animFrameId = requestAnimationFrame(update);
+      this.scheduleVideoUpdate(update);
     };
-    this.animFrameId = requestAnimationFrame(update);
+    this.scheduleVideoUpdate(update);
   }
 
-  stopAnimationLoop() {
+  scheduleVideoUpdate(callback) {
+    const { video } = this.dom;
+    if (typeof video.requestVideoFrameCallback === 'function') {
+      this.videoFrameCallbackId = video.requestVideoFrameCallback(callback);
+    } else {
+      this.animFrameId = requestAnimationFrame(callback);
+    }
+  }
+
+  stopAnimationLoop(updateFinalFrame = true) {
+    if (this.syncTimerId) {
+      clearInterval(this.syncTimerId);
+      this.syncTimerId = null;
+    }
+    if (this.videoFrameCallbackId !== null) {
+      this.dom.video.cancelVideoFrameCallback?.(this.videoFrameCallbackId);
+      this.videoFrameCallbackId = null;
+    }
     if (this.animFrameId) {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
     }
-    this.updateUI();
+    if (updateFinalFrame) this.updateUI();
   }
 
   updateUI() {
+    this.updateControls();
+    this.updateStrokeIndicator();
+  }
+
+  updateControls() {
     const { video } = this.dom;
     if (!video.duration) return;
     this.updateTimeDisplay();
-    this.dom.seekBar.value = (video.currentTime / video.duration) * 1000;
+    const seekValue = String(Math.round((video.currentTime / video.duration) * 1000));
+    if (this.dom.seekBar.value !== seekValue) this.dom.seekBar.value = seekValue;
+  }
+
+  updateStrokeIndicator() {
+    const { video } = this.dom;
     if (this.funscript) {
       const pos = this.funscript.getPositionAt(video.currentTime * 1000 + this.offset);
-      this.dom.strokeThumb.style.bottom = `${pos}%`;
+      const bottom = `${pos}%`;
+      if (this.dom.strokeThumb.style.bottom !== bottom) this.dom.strokeThumb.style.bottom = bottom;
     }
   }
 
   updateTimeDisplay() {
     const { video } = this.dom;
-    this.dom.timeDisplay.textContent = `${formatTime(video.currentTime || 0)} / ${formatTime(video.duration || 0)}`;
+    const text = `${formatTime(video.currentTime || 0)} / ${formatTime(video.duration || 0)}`;
+    if (this.dom.timeDisplay.textContent !== text) this.dom.timeDisplay.textContent = text;
   }
 
   // --- Fullscreen ---
