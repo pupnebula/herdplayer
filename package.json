@@ -6,6 +6,7 @@
   "scripts": {
     "start": "electron .",
     "icon": "node scripts/generate-icon.js",
+    "auth": "node scripts/auth-tools.js",
     "build": "electron-builder --win"
   },
   "build": {
@@ -16,9 +17,10 @@
     "files": [
       "main.js",
       "preload.js",
+      "auth.js",
+      "auth-config.js",
       "index.html",
       "video.html",
-      "manual.html",
       "css/**/*",
       "js/**/*"
     ],

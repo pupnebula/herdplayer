@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.handyfeeling.com)",
+      "WebFetch(domain:links.handyfeeling.com)",
+      "WebFetch(domain:gitlab.com)",
+      "Bash(curl -s \"https://www.handyfeeling.com/api/handy-rest/v3/docs/spec.yaml\")"
+    ]
+  }
+}

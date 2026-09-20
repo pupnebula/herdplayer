@@ -29,6 +29,10 @@ export class GroupApp {
   _initSliderEvents() {
     const { dom } = this;
 
+    this.strokeLinked = false;
+    this._lastMin = parseInt(dom.strokeMinSlider.value, 10);
+    this._lastMax = parseInt(dom.strokeMaxSlider.value, 10);
+
     // Throttle live updates while dragging: leading-edge fires immediately
     // (responsive), subsequent events within the window coalesce into one
     // trailing call so the final slider value is always delivered.
@@ -62,20 +66,60 @@ export class GroupApp {
     dom.strokeMinSlider.addEventListener('input', () => {
       this.clearActivePreset();
       let min = parseInt(dom.strokeMinSlider.value, 10);
-      const max = parseInt(dom.strokeMaxSlider.value, 10);
-      if (min >= max) { min = max - 1; dom.strokeMinSlider.value = min; }
+      let max = parseInt(dom.strokeMaxSlider.value, 10);
+
+      if (this.strokeLinked) {
+        const distance = this._lastMax - this._lastMin;
+        max = min + distance;
+        if (max > 100) { max = 100; min = max - distance; }
+        if (min < 0)   { min = 0;   max = min + distance; }
+        dom.strokeMinSlider.value = min;
+        dom.strokeMaxSlider.value = max;
+        dom.strokeMaxValue.textContent = `${max}%`;
+      } else if (min >= max) {
+        min = max - 1;
+        dom.strokeMinSlider.value = min;
+      }
+
       dom.strokeMinValue.textContent = `${min}%`;
+      this._lastMin = min;
+      this._lastMax = max;
       if (this.isPlayingOnCurrentGroup()) scheduleUpdate();
     });
 
     dom.strokeMaxSlider.addEventListener('input', () => {
       this.clearActivePreset();
-      const min = parseInt(dom.strokeMinSlider.value, 10);
+      let min = parseInt(dom.strokeMinSlider.value, 10);
       let max = parseInt(dom.strokeMaxSlider.value, 10);
-      if (max <= min) { max = min + 1; dom.strokeMaxSlider.value = max; }
+
+      if (this.strokeLinked) {
+        const distance = this._lastMax - this._lastMin;
+        min = max - distance;
+        if (min < 0)   { min = 0;   max = min + distance; }
+        if (max > 100) { max = 100; min = max - distance; }
+        dom.strokeMinSlider.value = min;
+        dom.strokeMaxSlider.value = max;
+        dom.strokeMinValue.textContent = `${min}%`;
+      } else if (max <= min) {
+        max = min + 1;
+        dom.strokeMaxSlider.value = max;
+      }
+
       dom.strokeMaxValue.textContent = `${max}%`;
+      this._lastMin = min;
+      this._lastMax = max;
       if (this.isPlayingOnCurrentGroup()) scheduleUpdate();
     });
+
+    if (dom.strokeLinkBtn) {
+      dom.strokeLinkBtn.addEventListener('click', () => {
+        this.strokeLinked = !this.strokeLinked;
+        dom.strokeLinkBtn.classList.toggle('active', this.strokeLinked);
+        dom.strokeLinkBtn.setAttribute('aria-pressed', String(this.strokeLinked));
+        this._lastMin = parseInt(dom.strokeMinSlider.value, 10);
+        this._lastMax = parseInt(dom.strokeMaxSlider.value, 10);
+      });
+    }
 
     for (const btn of document.querySelectorAll('.preset-btn')) {
       btn.addEventListener('click', () => {
@@ -215,6 +259,8 @@ export class GroupApp {
     dom.strokeMinValue.textContent = `${s.strokeMin}%`;
     dom.strokeMaxSlider.value = s.strokeMax;
     dom.strokeMaxValue.textContent = `${s.strokeMax}%`;
+    this._lastMin = s.strokeMin;
+    this._lastMax = s.strokeMax;
   }
 
   updateControlsTitle() {
@@ -361,8 +407,11 @@ export class GroupApp {
     dom.strokeMinValue.textContent = `${min}%`;
     dom.strokeMaxSlider.value = max;
     dom.strokeMaxValue.textContent = `${max}%`;
+    this._lastMin = min;
+    this._lastMax = max;
 
-    this._doStart();
+    if (this.isPlayingOnCurrentGroup()) this._doUpdate();
+    else this._doStart();
   }
 
   clearActivePreset() {

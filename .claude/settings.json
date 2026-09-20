@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(unzip -l HP.zip)",
+      "Bash(unzip -o HP.zip -d HP_handoff)",
+      "Bash(node --check main.js)",
+      "Bash(node --check preload.js)",
+      "Bash(node --input-type=module --check)"
+    ]
+  }
+}

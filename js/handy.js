@@ -11,6 +11,7 @@ export class HandyDevice {
     this.hsspReady = false;
     this.hampReady = false;
     this.hspReady = false;
+    this.hdspReady = false;
     this.info = null;
   }
 
@@ -206,9 +207,13 @@ export class HandyDevice {
 
   // HDSP — used for one-shot absolute positioning
 
+  // `position` is a percent in the range 0–100; the wire format is 0–1.
   async hdspMoveToPercent(position, durationMs) {
     return this.request('PUT', '/hdsp/xpt', {
-      position, duration: Math.round(durationMs), stopOnTarget: true,
+      xp: position / 100,
+      t: Math.round(durationMs),
+      stop_on_target: true,
+      immediate_rsp: true,
     });
   }
 }
@@ -271,6 +276,14 @@ export class HandyManager {
 
   get anyHspReady() {
     return this.devices.some(d => d.hspReady);
+  }
+
+  get hdspReadyDevices() {
+    return this.devices.filter(d => d.hdspReady);
+  }
+
+  get anyHdspReady() {
+    return this.devices.some(d => d.hdspReady);
   }
 
   // Connect all devices in parallel. onDeviceStatus(index, status, ...extra) for per-device UI.
@@ -459,6 +472,30 @@ export class HandyManager {
   async hspStopAll() {
     await Promise.allSettled(
       this.hspReadyDevices.map(d => d.hspStop())
+    );
+  }
+
+  // Set up HDSP on all connected devices
+  async setupHDSPAll() {
+    const results = await Promise.allSettled(
+      this.connectedDevices.map(async (device) => {
+        await device.setMode(DeviceMode.HDSP);
+        device.hdspReady = true;
+      })
+    );
+
+    let idx = 0;
+    for (const device of this.connectedDevices) {
+      if (results[idx]?.status === 'rejected') {
+        device.hdspReady = false;
+      }
+      idx++;
+    }
+  }
+
+  async hdspMoveAllToPercent(position, durationMs) {
+    await Promise.allSettled(
+      this.hdspReadyDevices.map(d => d.hdspMoveToPercent(position, durationMs))
     );
   }
 

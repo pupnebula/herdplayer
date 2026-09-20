@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>HerdPlayer - Controls</title>
+  <title>HerdPlayer</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body class="desktop-app">
   <header>
     <div class="header-left">
       <span class="logo">HerdPlayer</span>
@@ -14,87 +14,328 @@
       <button class="mode-btn active" data-mode="hssp">Script</button>
       <button class="mode-btn" data-mode="hamp">Manual</button>
       <button class="mode-btn" data-mode="queue">Queue</button>
+      <button class="mode-btn" data-mode="direct">Direct</button>
+    </div>
+    <div class="header-right">
+      <button id="mode-info-btn" class="btn-icon" type="button" title="About this mode" aria-label="About this mode">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="16" x2="12" y2="12"/>
+          <line x1="12" y1="8" x2="12.01" y2="8"/>
+        </svg>
+      </button>
+      <button id="open-prefs-btn" class="btn-icon" title="Preferences (Ctrl+,)" aria-label="Preferences">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
     </div>
   </header>
 
   <main>
-    <div class="control-panel">
-      <div class="panel-section">
-        <span class="panel-title">Media</span>
-        <div class="file-info">
-          <span class="label">Video:</span>
-          <span id="video-name" class="file-name">None</span>
-          <button id="load-video-btn" class="btn btn-small">Choose</button>
-          <button id="load-folder-btn" class="btn btn-small">Folder</button>
-        </div>
-        <div class="file-info">
-          <input type="text" id="video-url-input" placeholder="or paste video URL" class="url-input">
-          <button id="load-url-btn" class="btn btn-small">Load URL</button>
-        </div>
-        <div class="file-info">
-          <span class="label">Script:</span>
-          <span id="script-name" class="file-name">None</span>
-          <button id="load-script-btn" class="btn btn-small">Choose</button>
-          <span id="script-upload-status"></span>
-        </div>
-        <div class="media-sync-row">
-          <div class="offset-control">
-            <span class="label">Offset:</span>
-            <button id="offset-minus" class="btn btn-tiny">-50</button>
-            <input type="number" id="offset-input" value="0" step="50" class="offset-input">
-            <button id="offset-plus" class="btn btn-tiny">+50</button>
-            <span class="label">ms</span>
-          </div>
-          <div id="sync-info" class="sync-info" style="display:none">
-            <span class="label">Sync:</span>
-            <span id="sync-offset-display">--</span>
-          </div>
-        </div>
-      </div>
-    </div>
+    <!-- ── Center column: mode-specific panels ──────────── -->
+    <section class="column column-center">
+      <div id="side-panel-container">
 
-    <div class="panel-section playlist-section" id="playlist-section" style="display:none">
-      <div class="playlist-header">
-        <span class="panel-title">Library</span>
-        <span class="playlist-count" id="playlist-count"></span>
-        <button id="clear-playlist-btn" class="btn-icon" title="Clear queue">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
-        </button>
-      </div>
-      <div class="playlist-items" id="playlist-items"></div>
-    </div>
+        <!-- Script mode: media + library + funscript timeline -->
+        <div class="mode-section script-mode-section" data-panel="hssp" hidden>
+          <div class="panel-section script-media-panel">
+            <span class="panel-title">Media</span>
+            <div class="file-info">
+              <span class="label">Video:</span>
+              <span id="video-name" class="file-name">None</span>
+            </div>
+            <div class="file-actions">
+              <button id="load-video-btn" class="btn btn-small">Choose Video</button>
+              <button id="load-folder-btn" class="btn btn-small">Open Folder</button>
+            </div>
+            <div class="file-info">
+              <input type="text" id="video-url-input" placeholder="or paste video URL" class="url-input">
+              <button id="load-url-btn" class="btn btn-small">Load URL</button>
+            </div>
+            <div class="separator-line"></div>
+            <div class="file-info">
+              <span class="label">Script:</span>
+              <span id="script-name" class="file-name">None</span>
+              <span id="script-upload-status"></span>
+            </div>
+            <div class="file-actions">
+              <button id="load-script-btn" class="btn btn-small">Choose Script</button>
+            </div>
+            <div class="separator-line"></div>
+            <div class="media-sync-row">
+              <div class="offset-control">
+                <span class="label">Offset:</span>
+                <button id="offset-minus" class="btn btn-tiny">-50</button>
+                <input type="number" id="offset-input" value="0" step="50" class="offset-input">
+                <button id="offset-plus" class="btn btn-tiny">+50</button>
+                <span class="label">ms</span>
+              </div>
+              <div id="sync-info" class="sync-info" style="display:none">
+                <span class="label">Sync:</span>
+                <span id="sync-offset-display">--</span>
+              </div>
+            </div>
+          </div>
 
-    <div class="sidebar" id="sidebar">
-      <div class="sidebar-header">
-        <span class="sidebar-title">Devices</span>
-        <div id="connection-summary" class="connection-summary"></div>
+          <div class="panel-section playlist-section" id="playlist-section">
+            <div class="playlist-header">
+              <span class="panel-title">Library</span>
+              <span class="playlist-count" id="playlist-count"></span>
+              <button id="clear-playlist-btn" class="btn-icon" title="Clear queue">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <div class="playlist-items" id="playlist-items">
+              <div class="playlist-empty">Open a folder of videos to populate the library.</div>
+            </div>
+          </div>
+
+          <div class="timeline-container" id="timeline-container">
+            <canvas id="funscript-timeline"></canvas>
+            <div class="timeline-playhead" id="timeline-playhead"></div>
+            <div class="timeline-hover" id="timeline-hover">
+              <span id="timeline-hover-time"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Manual (HAMP) mode -->
+        <div class="mode-section" data-panel="hamp" hidden>
+          <div class="manual-panel" id="manual-panel">
+
+            <div class="manual-left">
+              <div class="panel-title panel-title-row">Groups</div>
+              <div class="group-cards" id="group-cards"></div>
+              <button class="add-group-btn" id="add-group-btn">+ New Group</button>
+            </div>
+
+            <div class="panel-section manual-controls-panel" id="group-controls-section">
+              <div class="group-controls-header">
+                <span class="panel-title" id="group-controls-title">Controls</span>
+                <div class="manual-status">
+                  <span class="status-dot disconnected" id="hsp-status-dot"></span>
+                  <span id="hsp-status-text">Select a group</span>
+                </div>
+              </div>
+              <div class="manual-control-group">
+                <div class="manual-label-row">
+                  <span class="label">Velocity</span>
+                  <span class="manual-value" id="velocity-value">0%</span>
+                </div>
+                <input type="range" id="velocity-slider" min="0" max="100" value="0" step="1">
+              </div>
+              <div class="stroke-pair">
+                <div class="manual-control-group">
+                  <div class="manual-label-row">
+                    <span class="label">Stroke Min</span>
+                    <span class="manual-value" id="stroke-min-value">0%</span>
+                  </div>
+                  <input type="range" id="stroke-min-slider" min="0" max="100" value="0" step="1">
+                </div>
+                <div class="manual-control-group">
+                  <div class="manual-label-row">
+                    <span class="label">Stroke Max</span>
+                    <span class="manual-value" id="stroke-max-value">100%</span>
+                  </div>
+                  <input type="range" id="stroke-max-slider" min="0" max="100" value="100" step="1">
+                </div>
+                <button class="stroke-link-btn" id="stroke-link-btn" type="button" title="Link Stroke Min and Max" aria-pressed="false">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="manual-actions">
+                <button id="hsp-start-btn" class="btn btn-primary" disabled>Start</button>
+                <button id="hsp-stop-btn" class="btn" disabled>Stop</button>
+              </div>
+            </div>
+
+            <div class="panel-section preset-section">
+              <span class="panel-title">Presets</span>
+              <div class="preset-grid">
+                <span class="preset-header"></span>
+                <span class="preset-header">Slow</span>
+                <span class="preset-header">Med</span>
+                <span class="preset-header">High</span>
+                <span class="preset-header">Fast</span>
+
+                <span class="preset-row-label">Top</span>
+                <button class="preset-btn" data-position="top" data-speed="15">Slow</button>
+                <button class="preset-btn" data-position="top" data-speed="50">Med</button>
+                <button class="preset-btn" data-position="top" data-speed="70">High</button>
+                <button class="preset-btn" data-position="top" data-speed="90">Fast</button>
+
+                <span class="preset-row-label">Mid</span>
+                <button class="preset-btn" data-position="middle" data-speed="15">Slow</button>
+                <button class="preset-btn" data-position="middle" data-speed="50">Med</button>
+                <button class="preset-btn" data-position="middle" data-speed="70">High</button>
+                <button class="preset-btn" data-position="middle" data-speed="90">Fast</button>
+
+                <span class="preset-row-label">Bottom</span>
+                <button class="preset-btn" data-position="bottom" data-speed="15">Slow</button>
+                <button class="preset-btn" data-position="bottom" data-speed="50">Med</button>
+                <button class="preset-btn" data-position="bottom" data-speed="70">High</button>
+                <button class="preset-btn" data-position="bottom" data-speed="90">Fast</button>
+
+                <span class="preset-row-label">Full</span>
+                <button class="preset-btn" data-position="full" data-speed="15">Slow</button>
+                <button class="preset-btn" data-position="full" data-speed="50">Med</button>
+                <button class="preset-btn" data-position="full" data-speed="70">High</button>
+                <button class="preset-btn" data-position="full" data-speed="90">Fast</button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Queue mode -->
+        <div class="mode-section" data-panel="queue" hidden>
+          <div class="queue-panel">
+
+            <div class="queue-top-row">
+              <div class="queue-status manual-status">
+                <span class="status-dot disconnected" id="queue-status-dot"></span>
+                <span id="queue-status-text">Waiting for devices...</span>
+              </div>
+              <div class="manual-control-group queue-rate-control">
+                <div class="manual-label-row">
+                  <span class="label">Speed</span>
+                  <span class="manual-value" id="queue-rate-value">1.0×</span>
+                </div>
+                <input type="range" id="queue-rate-slider" min="0.2" max="3.0" value="1.0" step="0.1" disabled>
+              </div>
+              <button id="queue-start-btn" class="btn btn-primary" disabled>Start Queue</button>
+              <button id="queue-emergency-stop" class="btn-emergency" disabled>
+                Emergency Stop
+              </button>
+            </div>
+
+            <div class="panel-section">
+              <span class="panel-title">Queue</span>
+              <div class="queue-timeline" id="queue-timeline">
+                <div class="queue-timeline-empty">Add patterns from the library below</div>
+              </div>
+            </div>
+
+            <div class="panel-section queue-library-section">
+              <span class="panel-title">Library</span>
+
+              <div class="library-filters">
+                <div class="library-filter-row">
+                  <button class="filter-btn active" data-filter-speed="all">All</button>
+                  <button class="filter-btn" data-filter-speed="slow">Slow</button>
+                  <button class="filter-btn" data-filter-speed="medium">Med</button>
+                  <button class="filter-btn" data-filter-speed="fast">Fast</button>
+                  <button class="filter-btn" data-filter-speed="sprint">Sprint</button>
+                </div>
+                <div class="library-filter-row">
+                  <button class="filter-btn active" data-filter-pos="all">All</button>
+                  <button class="filter-btn" data-filter-pos="top">Top</button>
+                  <button class="filter-btn" data-filter-pos="bottom">Bottom</button>
+                  <button class="filter-btn" data-filter-pos="full">Full</button>
+                </div>
+              </div>
+
+              <div class="queue-library" id="queue-library">
+                <span class="queue-empty">Loading patterns…</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Direct (HDSP) mode -->
+        <div class="mode-section" data-panel="direct" hidden>
+          <div class="direct-panel">
+            <div class="panel-section direct-controls-panel">
+              <div class="group-controls-header">
+                <span class="panel-title">Direct Position</span>
+                <div class="manual-status">
+                  <span class="status-dot disconnected" id="direct-status-dot"></span>
+                  <span id="direct-status-text">Waiting for devices...</span>
+                </div>
+              </div>
+              <div class="manual-control-group direct-position-control">
+                <div class="manual-label-row">
+                  <span class="label">Position</span>
+                  <span class="manual-value" id="direct-position-value">0%</span>
+                </div>
+                <input type="range" id="direct-position-slider" min="0" max="100" value="0" step="1" disabled>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Idle fallback (shown only if no mode section matches) -->
+        <div class="mode-section mode-section--idle" data-panel="__idle__">
+          <span class="idle-hint">No controls for this mode</span>
+        </div>
+
       </div>
-      <div class="api-key-row">
-        <input type="text" id="api-key" placeholder="Application ID" spellcheck="false">
+    </section>
+
+    <!-- ── Right column: Devices ────────────────────────── -->
+    <aside class="column column-right">
+      <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <span class="sidebar-title">Devices</span>
+          <div id="connection-summary" class="connection-summary"></div>
+          <button id="devices-collapse-btn" class="btn-icon sidebar-collapse-btn" type="button" title="Collapse devices panel" aria-label="Collapse devices panel">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+          </button>
+        </div>
+        <div class="api-key-row">
+          <input type="text" id="api-key" placeholder="Application ID" spellcheck="false">
+        </div>
+        <div class="devices-list" id="devices-list"></div>
+        <div class="sidebar-actions">
+          <button id="add-device-btn" class="btn btn-small">+ Add Device</button>
+          <button id="connect-btn" class="btn btn-primary btn-small">Connect All</button>
+        </div>
       </div>
-      <div class="devices-list" id="devices-list"></div>
-      <div class="sidebar-actions">
-        <button id="add-device-btn" class="btn btn-small">+ Add Device</button>
-        <button id="connect-btn" class="btn btn-primary btn-small">Connect All</button>
-      </div>
-    </div>
+    </aside>
   </main>
-
-  <div class="timeline-container" id="timeline-container">
-    <canvas id="funscript-timeline"></canvas>
-    <div class="timeline-playhead" id="timeline-playhead"></div>
-    <div class="timeline-hover" id="timeline-hover">
-      <span id="timeline-hover-time"></span>
-    </div>
-  </div>
 
   <input type="file" id="video-input" accept="video/*,.mkv" hidden>
   <input type="file" id="script-input" accept=".funscript,.json,.csv" hidden>
   <input type="file" id="folder-input" webkitdirectory hidden>
   <div id="toast-container" class="toast-container"></div>
 
+  <!-- Mode info modal (hidden until opened) -->
+  <div id="mode-info-modal" class="mode-info-root" hidden>
+    <div class="mode-info-backdrop" data-mode-info-close></div>
+    <div class="mode-info-card" role="dialog" aria-modal="true" aria-labelledby="mode-info-title">
+      <div class="mode-info-header">
+        <span class="mode-info-title" id="mode-info-title">Mode</span>
+        <button class="mode-info-close" type="button" aria-label="Close" data-mode-info-close>✕</button>
+      </div>
+      <div class="mode-info-body" id="mode-info-body"></div>
+    </div>
+  </div>
+
+  <!-- Preferences modal (hidden until opened) -->
+  <div id="prefs-modal" class="prefs-modal-root" hidden>
+    <div class="prefs-backdrop" data-prefs-close></div>
+    <div class="prefs-modal" role="dialog" aria-modal="true" aria-labelledby="prefs-title">
+      <nav class="prefs-nav" id="prefs-nav"></nav>
+      <div class="prefs-body" id="prefs-body"></div>
+    </div>
+  </div>
+
+  <!-- Manual / Queue must register their in-window IPC handlers before
+       app.js fires the initial mode-changed message. -->
+  <script type="module" src="js/prefs-app.js"></script>
+  <script type="module" src="js/manual-app.js"></script>
+  <script type="module" src="js/queue-app.js"></script>
+  <script type="module" src="js/direct-app.js"></script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

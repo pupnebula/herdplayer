@@ -1,13 +1,13 @@
 :root {
   --bg: #202020;
   --bg-solid: #1c1c1c;
-  --surface: rgba(255, 255, 255, 0.04);
-  --surface-2: rgba(255, 255, 255, 0.06);
-  --surface-3: rgba(255, 255, 255, 0.09);
-  --surface-hover: rgba(255, 255, 255, 0.08);
-  --border: rgba(255, 255, 255, 0.07);
-  --border-light: rgba(255, 255, 255, 0.1);
-  --border-focus: rgba(255, 255, 255, 0.15);
+  --surface: rgba(255, 255, 255, 0.07);
+  --surface-2: rgba(255, 255, 255, 0.10);
+  --surface-3: rgba(255, 255, 255, 0.14);
+  --surface-hover: rgba(255, 255, 255, 0.13);
+  --border: rgba(255, 255, 255, 0.13);
+  --border-light: rgba(255, 255, 255, 0.22);
+  --border-focus: rgba(255, 255, 255, 0.32);
   --accent: #e8863a;
   --accent-hover: #f09550;
   --accent-dim: rgba(232, 134, 58, 0.2);
@@ -16,9 +16,9 @@
   --green-light: #4cc68a;
   --green-dim: rgba(76, 198, 138, 0.15);
   --text: #efefef;
-  --text-secondary: #c0bfbd;
-  --text-muted: #8b8985;
-  --text-dim: #5a5856;
+  --text-secondary: #d0cfcd;
+  --text-muted: #a8a5a0;
+  --text-dim: #7a7673;
   --success: #4cc68a;
   --warning: #e5b735;
   --error: #e04f4f;
@@ -100,12 +100,12 @@ header {
 }
 
 .sidebar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.20);
   border-radius: 2px;
 }
 
 .sidebar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.32);
 }
 
 .sidebar-header {
@@ -119,7 +119,7 @@ header {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  color: rgba(232, 134, 58, 0.7);
+  color: rgba(232, 134, 58, 0.95);
 }
 
 .sidebar-actions {
@@ -278,7 +278,7 @@ header {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   padding: 3px 4px;
   font-size: 10px;
   font-family: var(--font-mono);
@@ -307,11 +307,93 @@ header {
   min-width: 0;
 }
 
+.device-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.device-row.settings-collapsed .device-settings {
+  display: none;
+}
+
+.device-row .device-settings-toggle {
+  padding: 2px 4px;
+  color: var(--text-muted);
+  transition: color var(--transition), transform 0.2s ease;
+}
+
+.device-row .device-settings-toggle:hover {
+  color: var(--accent);
+}
+
+.device-row.settings-collapsed .device-settings-toggle svg {
+  transform: rotate(-90deg);
+}
+
+.device-row .device-settings-toggle svg {
+  transition: transform 0.2s ease;
+}
+
+.device-manual-scalers {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.device-scaler-section {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  width: 38px;
+  flex-shrink: 0;
+}
+
+.device-scaler-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.device-scaler-label {
+  font-size: 9px;
+  color: var(--text-dim);
+  text-transform: lowercase;
+}
+
+.device-scaler-input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  padding: 2px 3px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  width: 38px;
+  text-align: center;
+  outline: none;
+  transition: border-color var(--transition), color var(--transition);
+  -moz-appearance: textfield;
+}
+
+.device-scaler-input::-webkit-outer-spin-button,
+.device-scaler-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.device-scaler-input:focus {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
 .device-row .device-remove {
   font-size: 16px;
   line-height: 1;
   padding: 2px 5px;
-  color: var(--text-dim);
+  color: var(--text-muted);
 }
 
 .device-row .device-remove:hover {
@@ -322,7 +404,7 @@ header {
   font-size: 15px;
   line-height: 1;
   padding: 2px 5px;
-  color: var(--text-dim);
+  color: var(--text-muted);
   transition: color var(--transition), transform 0.3s ease;
 }
 
@@ -487,7 +569,7 @@ main {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  color: rgba(232, 134, 58, 0.7);
+  color: rgba(232, 134, 58, 0.95);
   margin-bottom: 2px;
 }
 
@@ -543,7 +625,7 @@ main {
   gap: 16px;
   color: var(--text-muted);
   padding: 48px;
-  border: 2px dashed rgba(255, 255, 255, 0.12);
+  border: 2px dashed rgba(255, 255, 255, 0.22);
   border-radius: 12px;
   transition: all 0.3s;
 }
@@ -594,7 +676,7 @@ main {
 .stroke-track {
   width: 100%;
   height: 100%;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 3px;
   position: relative;
 }
@@ -640,8 +722,8 @@ main {
 
 .playlist-items::-webkit-scrollbar       { width: 3px; }
 .playlist-items::-webkit-scrollbar-track { background: transparent; }
-.playlist-items::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
-.playlist-items::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+.playlist-items::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.20); border-radius: 2px; }
+.playlist-items::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.32); }
 
 .playlist-item {
   display: flex;
@@ -809,7 +891,7 @@ input[type="range"] {
   appearance: none;
   width: 100%;
   height: 4px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.20);
   border-radius: 2px;
   outline: none;
   cursor: pointer;
@@ -982,7 +1064,7 @@ input[type="range"]::-moz-range-thumb {
 .toast-container {
   position: fixed;
   top: 16px;
-  right: 16px;
+  left: 16px;
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -1214,7 +1296,7 @@ input[type="range"]::-moz-range-thumb {
   transition: background var(--transition);
 }
 
-.device-item:hover { background: rgba(255, 255, 255, 0.04); }
+.device-item:hover { background: rgba(255, 255, 255, 0.09); }
 .device-item:active { cursor: grabbing; }
 
 .device-item.dragging {
@@ -1223,7 +1305,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .device-drag-handle {
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: 12px;
   flex-shrink: 0;
   cursor: grab;
@@ -1321,6 +1403,57 @@ input[type="range"]::-moz-range-thumb {
   text-align: right;
 }
 
+.stroke-pair {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  row-gap: 10px;
+  align-items: center;
+}
+
+.stroke-pair > .manual-control-group:nth-of-type(1) {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.stroke-pair > .manual-control-group:nth-of-type(2) {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.stroke-link-btn {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  transition: color var(--transition), background var(--transition), border-color var(--transition);
+}
+
+.stroke-link-btn:hover:not(:disabled) {
+  color: var(--text-secondary);
+  border-color: var(--border-focus);
+}
+
+.stroke-link-btn.active {
+  background: var(--accent-subtle);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.stroke-link-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .manual-actions {
   display: flex;
   gap: 6px;
@@ -1414,6 +1547,7 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
 }
 
 /* Prevent author display:flex from overriding the hidden attribute */
@@ -1444,7 +1578,7 @@ input[type="range"]::-moz-range-thumb {
 
 .queue-panel::-webkit-scrollbar { width: 3px; }
 .queue-panel::-webkit-scrollbar-track { background: transparent; }
-.queue-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+.queue-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.20); border-radius: 2px; }
 
 /* Emergency stop */
 .btn-emergency {
@@ -1484,12 +1618,12 @@ input[type="range"]::-moz-range-thumb {
   height: 84px;
   padding-bottom: 4px; /* room for scrollbar */
   scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.12) transparent;
+  scrollbar-color: rgba(255,255,255,0.22) transparent;
 }
 
 .queue-timeline::-webkit-scrollbar { height: 3px; }
 .queue-timeline::-webkit-scrollbar-track { background: transparent; }
-.queue-timeline::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+.queue-timeline::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.22); border-radius: 2px; }
 
 .queue-block {
   flex: 0 0 110px;
@@ -1683,3 +1817,953 @@ input[type="range"]::-moz-range-thumb {
   animation: card-flash 0.35s ease-out;
 }
 
+/* ─────────────────────────────────────────────
+   Desktop layout (Electron main window).
+   All rules below are scoped to `body.desktop-app`
+   so the mobile web build is unaffected.
+   ───────────────────────────────────────────── */
+
+.desktop-app header {
+  padding: 10px 16px 4px;
+}
+
+.desktop-app main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 12px;
+  padding: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.desktop-app .column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Center column hosts the mode-specific panels. */
+.desktop-app .column-center #side-panel-container {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Right column: devices sidebar fills the column height. */
+.desktop-app .column-right .sidebar {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Small utility bits used by the desktop Media panel. */
+.desktop-app .file-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.desktop-app .separator-line {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0 2px;
+}
+
+.desktop-app .playlist-empty {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 14px 8px;
+  text-align: center;
+}
+
+/* Playlist fills the center column instead of being a 210px strip. */
+.desktop-app .playlist-section {
+  flex: 1;
+  min-height: 0;
+}
+
+.desktop-app .playlist-section .playlist-items {
+  flex: 1;
+  max-height: none;
+  min-height: 0;
+}
+
+/* ── HAMP (Manual) mode: responsive layout ──
+   Wide  : Groups + Controls side by side (always filling the panel),
+           Presets full-width below.
+   Narrow: Groups, Controls, Presets stacked, each full-width.
+   container-type goes on .mode-section[data-panel="hamp"] so the
+   @container query below can target .manual-panel itself. */
+.desktop-app .mode-section[data-panel="hamp"] {
+  container-type: inline-size;
+}
+
+.desktop-app .manual-panel {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 12px;
+  padding: 4px;
+  overflow-y: auto;
+  align-content: start;
+}
+
+@container (max-width: 540px) {
+  .desktop-app .manual-panel {
+    grid-template-columns: 1fr;
+  }
+}
+
+.desktop-app .manual-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  box-shadow: var(--shadow-card);
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.desktop-app .manual-left > .panel-title {
+  margin-bottom: 6px;
+}
+
+.desktop-app .manual-left .group-cards {
+  padding: 0;
+  gap: 6px;
+}
+
+.desktop-app .manual-left .add-group-btn {
+  margin: 4px 0 0;
+  width: 100%;
+}
+
+.desktop-app .manual-controls-panel {
+  min-width: 0;
+}
+
+/* Presets always span the full panel width, regardless of column count. */
+.desktop-app .manual-panel .preset-section {
+  grid-column: 1 / -1;
+  margin-top: 0;
+  min-width: 0;
+}
+
+.desktop-app .preset-grid {
+  gap: 6px;
+}
+
+.desktop-app .preset-btn {
+  padding: 8px 6px;
+  font-size: 12px;
+}
+
+/* ── Direct (HDSP) mode: vertical position slider mimicking the device ── */
+.desktop-app .direct-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  min-height: 0;
+}
+
+.desktop-app .direct-controls-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The control becomes a vertical column: label-row on top, slider fills
+   the rest. The slider itself is rotated via writing-mode (modern
+   Chromium-native vertical orientation). `direction: rtl` flips so the
+   high end (100 %) is at the top — like the physical device fully extended. */
+.desktop-app .direct-position-control {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+  margin-top: 8px;
+  gap: 8px;
+}
+
+.desktop-app .direct-position-control .manual-label-row {
+  flex: 0 0 auto;
+}
+
+.desktop-app .direct-position-control input[type="range"] {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 32px;
+  flex: 1;
+  min-height: 240px;
+  margin: 4px 0;
+}
+
+/* ── Queue mode: horizontal top row + library grid ── */
+.desktop-app .queue-panel {
+  padding: 4px;
+  gap: 12px;
+}
+
+.desktop-app .queue-top-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  flex-shrink: 0;
+}
+
+.desktop-app .queue-top-row .manual-status {
+  font-size: 12px;
+}
+
+.desktop-app .queue-rate-control {
+  min-width: 180px;
+  gap: 2px;
+}
+
+.desktop-app .queue-top-row .btn-primary {
+  padding: 8px 18px;
+}
+
+.desktop-app .queue-top-row .btn-emergency {
+  width: auto;
+  padding: 8px 18px;
+  font-size: 12px;
+}
+
+/* Bigger queue timeline blocks to use the wider window. */
+.desktop-app .queue-timeline {
+  height: 110px;
+}
+
+.desktop-app .queue-block {
+  flex: 0 0 150px;
+  height: 104px;
+}
+
+.desktop-app .queue-block-name {
+  font-size: 10px;
+}
+
+/* Queue library expands into a wide auto-fill grid. */
+.desktop-app .queue-library-section {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.desktop-app .queue-library-section .queue-library {
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.desktop-app .queue-library .library-card-canvas {
+  height: 58px;
+}
+
+.desktop-app .queue-library .library-card-name {
+  font-size: 10px;
+}
+
+.desktop-app .queue-library .library-card-add {
+  font-size: 17px;
+}
+
+
+/* ── Header right (gear) ───────────────── */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#open-prefs-btn.is-open {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+}
+
+/* ── Mode info modal ───────────────────── */
+.mode-info-root[hidden] { display: none; }
+
+.mode-info-root {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mode-info-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: prefs-backdrop-in 150ms ease-out;
+}
+
+.mode-info-card {
+  position: relative;
+  width: 480px;
+  max-width: calc(100% - 40px);
+  max-height: calc(100% - 60px);
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: prefs-modal-in 180ms ease-out;
+}
+
+.mode-info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mode-info-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.mode-info-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mode-info-close:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.mode-info-body {
+  padding: 16px;
+  overflow-y: auto;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.mode-info-body p {
+  margin-bottom: 10px;
+}
+
+.mode-info-body ul {
+  padding-left: 20px;
+}
+
+.mode-info-body li {
+  margin-bottom: 4px;
+}
+
+.mode-info-body code {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.mode-info-body strong {
+  color: var(--text);
+}
+
+/* ── Preferences modal ─────────────────── */
+.kbd {
+  display: inline-flex;
+  background: var(--surface-3);
+  border: 1px solid var(--border-light);
+  border-bottom: 2px solid var(--border-light);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text);
+  min-width: 18px;
+  justify-content: center;
+}
+
+.prefs-modal-root[hidden] { display: none; }
+
+.prefs-modal-root {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.prefs-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: prefs-backdrop-in 150ms ease-out;
+}
+
+.prefs-modal {
+  position: relative;
+  width: 720px;
+  max-width: calc(100% - 40px);
+  height: 540px;
+  max-height: calc(100% - 60px);
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  overflow: hidden;
+  animation: prefs-modal-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.prefs-modal-root.closing .prefs-backdrop {
+  animation: prefs-backdrop-out 120ms ease-in forwards;
+}
+
+.prefs-modal-root.closing .prefs-modal {
+  animation: prefs-modal-out 120ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes prefs-backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes prefs-backdrop-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+@keyframes prefs-modal-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes prefs-modal-out {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.97); }
+}
+
+.prefs-nav {
+  background: rgba(0, 0, 0, 0.25);
+  border-right: 1px solid var(--border);
+  padding: 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+}
+
+.prefs-nav-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: rgba(232, 134, 58, 0.95);
+  padding: 6px 10px 10px;
+  font-weight: 600;
+}
+
+.prefs-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 7px 10px;
+  font-size: 12px;
+  font-family: var(--font);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition), color var(--transition);
+}
+
+.prefs-nav-item:hover {
+  background: var(--surface-2);
+}
+
+.prefs-nav-item.active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.prefs-nav-icon {
+  width: 14px;
+  display: inline-flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.prefs-body {
+  padding: 18px 22px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.prefs-body::-webkit-scrollbar { width: 4px; }
+.prefs-body::-webkit-scrollbar-track { background: transparent; }
+.prefs-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.20); border-radius: 2px; }
+
+.prefs-body-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+}
+
+.prefs-body-title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.prefs-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  line-height: 1;
+  transition: background var(--transition), color var(--transition);
+}
+
+.prefs-close:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.prefs-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.prefs-section h3 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.prefs-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.prefs-row:last-child {
+  border-bottom: none;
+}
+
+.prefs-row-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.prefs-row-name {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.prefs-row-help {
+  font-size: 11px;
+  color: var(--text-dim);
+  max-width: 360px;
+  line-height: 1.4;
+}
+
+.prefs-kbd-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.prefs-kbd-sep {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+/* Rebindable binding chip */
+.prefs-bind-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  padding: 3px 10px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-light);
+  border-bottom: 2px solid var(--border-light);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.prefs-bind-chip:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-focus);
+}
+
+.prefs-bind-chip.capturing {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+  animation: prefs-bind-pulse 1s ease-in-out infinite;
+}
+
+@keyframes prefs-bind-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+/* Highlight whichever stroke slider keyboard length-keys are adjusting */
+input[type="range"].focus-bound {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Toggle */
+.prefs-toggle {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 200ms ease;
+}
+
+.prefs-toggle::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 200ms ease, background 200ms ease;
+}
+
+.prefs-toggle.on {
+  background: var(--accent-dim);
+}
+
+.prefs-toggle.on::after {
+  transform: translateX(14px);
+  background: var(--accent);
+}
+
+/* Select */
+.prefs-select {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 8px;
+  border-radius: var(--radius-xs);
+  font-size: 12px;
+  font-family: var(--font);
+  outline: none;
+  cursor: pointer;
+}
+
+.prefs-select:hover {
+  background: var(--surface-3);
+}
+
+/* Number input */
+.prefs-num {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 8px;
+  border-radius: var(--radius-xs);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  width: 70px;
+  text-align: right;
+  outline: none;
+}
+
+.prefs-num:focus {
+  border-color: var(--accent);
+}
+
+/* Inline button (used in rows) */
+.prefs-btn {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: var(--radius-xs);
+  font-size: 12px;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+
+.prefs-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-light);
+  color: var(--text);
+}
+
+.prefs-btn-danger {
+  color: var(--error);
+  border-color: rgba(224, 79, 79, 0.4);
+}
+
+.prefs-btn-danger:hover {
+  background: rgba(224, 79, 79, 0.1);
+  border-color: var(--error);
+  color: var(--error);
+}
+
+/* Accent swatches */
+.prefs-swatch-row {
+  display: flex;
+  gap: 6px;
+}
+
+.prefs-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 150ms ease;
+}
+
+.prefs-swatch:hover {
+  transform: scale(1.08);
+}
+
+.prefs-swatch.selected {
+  border-color: var(--text);
+}
+
+.prefs-button-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.prefs-about-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* Density: subtle padding reduction across panel sections */
+body.compact-density .panel-section { padding: 10px; gap: 6px; }
+body.compact-density .sidebar { padding: 12px; gap: 8px; }
+body.compact-density .desktop-app main { gap: 8px; padding: 8px; }
+body.compact-density .device-row { padding: 7px; }
+body.compact-density .group-card-header { padding: 5px 8px; }
+
+/* Reduce motion: disable transitions and animations */
+body.reduce-motion *,
+body.reduce-motion *::before,
+body.reduce-motion *::after {
+  transition-duration: 0.001ms !important;
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+}
+
+/* Devices panel collapsed: right column becomes a slim strip. */
+.desktop-app.devices-collapsed main {
+  grid-template-columns: minmax(0, 1fr) 44px;
+}
+
+/* ── Script-mode pane: Media + Library + Timeline stacked ── */
+.script-mode-section {
+  gap: 12px;
+  overflow: hidden;
+}
+
+.script-mode-section .script-media-panel {
+  flex-shrink: 0;
+}
+
+.script-mode-section .playlist-section {
+  flex: 1;
+  min-height: 0;
+}
+
+.script-mode-section .timeline-container {
+  margin: 0;
+  flex-shrink: 0;
+  height: 72px;
+}
+
+/* ── Collapsible devices sidebar ─────────── */
+.sidebar-header {
+  position: relative;
+}
+
+.sidebar-collapse-btn {
+  padding: 4px;
+  color: var(--text-muted);
+  transition: transform var(--transition), color var(--transition), background var(--transition);
+  flex-shrink: 0;
+}
+
+.sidebar-collapse-btn:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+/* Chevron points right when expanded (click to collapse →); points
+   left when collapsed (click to expand ←). */
+.devices-collapsed .sidebar-collapse-btn svg {
+  transform: rotate(180deg);
+}
+
+.devices-collapsed .sidebar {
+  padding: 12px 4px;
+  gap: 0;
+  align-items: center;
+  overflow: hidden;
+}
+
+.devices-collapsed .sidebar-header {
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.devices-collapsed .sidebar-title,
+.devices-collapsed .connection-summary,
+.devices-collapsed .api-key-row,
+.devices-collapsed .sidebar-actions {
+  display: none;
+}
+
+.devices-collapsed .sidebar-collapse-btn {
+  margin: 0 auto;
+}
+
+/* Collapsed devices list: each row shrinks to a single status dot. The
+   row's nickname is exposed as a tooltip via the title attribute already
+   set on hover, but for simplicity we rely on the dot's color to convey
+   connection state. */
+.devices-collapsed .devices-list {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 0;
+  width: 100%;
+  overflow: hidden auto;  /* y: scroll when needed, x: never */
+  min-height: 0;
+}
+
+.devices-collapsed .device-row {
+  flex-direction: row;
+  justify-content: center;
+  padding: 4px;
+  gap: 0;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  width: auto;
+}
+
+.devices-collapsed .device-row:hover {
+  background: var(--surface-2);
+}
+
+.devices-collapsed .device-row > *:not(.device-row-details) {
+  display: none;
+}
+
+.devices-collapsed .device-settings {
+  display: none;
+}
+
+.devices-collapsed .device-row-details {
+  padding: 0;
+  gap: 0;
+}
+
+.devices-collapsed .device-row-details > *:not(.device-status) {
+  display: none;
+}
+
+.devices-collapsed .device-status {
+  margin: 0;
+  gap: 0;
+  padding: 0;
+}
+
+.devices-collapsed .device-status-text {
+  display: none;
+}
+
+/* Slightly larger dot in collapsed mode so it's actually visible. */
+.devices-collapsed .status-dot {
+  width: 12px;
+  height: 12px;
+}

@@ -1,13 +1,68 @@
 import { HandyManager, HandyDevice, DeviceMode } from './handy.js';
 import { Funscript, renderTimeline } from './funscript.js';
+import { getPref, onPrefChange, togglePref } from './prefs-app.js';
 
+const MODE_INFO = {
+  hssp: {
+    title: 'Script mode',
+    body: `
+      <p>Plays a video alongside a synchronized <code>.funscript</code> that drives connected
+      devices via the Handy <strong>HSSP</strong> protocol — the firmware streams the script
+      itself, so timing stays accurate even if your network hiccups.</p>
+      <ul>
+        <li>Load a video and a matching <code>.funscript</code>, or open a folder to build a playlist.</li>
+        <li>Use <em>Offset</em> to nudge the script earlier/later if your hardware feels ahead or behind.</li>
+        <li>Each device has its own per-device offset in the right sidebar for fine-tuning.</li>
+      </ul>
+    `,
+  },
+  hamp: {
+    title: 'Manual mode',
+    body: `
+      <p>Drive the device by hand using the velocity and stroke-min/stroke-max sliders.
+      Uses the <strong>HAMP</strong> protocol — the firmware oscillates between the two bounds at
+      the chosen velocity.</p>
+      <ul>
+        <li><strong>Groups</strong> let you control multiple devices independently. Drag devices between groups.</li>
+        <li>Keyboard and gamepad shortcuts are rebindable in <em>Settings → Keyboard & Controller</em>.</li>
+        <li><em>Presets</em> below the sliders snap to common position/speed combinations.</li>
+      </ul>
+    `,
+  },
+  queue: {
+    title: 'Queue mode',
+    body: `
+      <p>Queue up a sequence of motion <em>patterns</em> (small built-in <code>.funscript</code> loops)
+      and play them back-to-back. Uses the <strong>HSP</strong> protocol — the firmware loops each
+      pattern at the rate you choose, and you advance through the queue manually or automatically.</p>
+      <ul>
+        <li>Pick patterns from the <em>Library</em>, filter by speed (Slow → Sprint) and position (Top/Bottom/Full).</li>
+        <li>The <em>Speed</em> slider is a live multiplier applied to the currently-playing pattern.</li>
+        <li>Drop in your own patterns — set a custom folder under <em>Settings → Advanced</em>.</li>
+      </ul>
+    `,
+  },
+  direct: {
+    title: 'Direct mode',
+    body: `
+      <p>Move a single position slider in real time and the device follows along. Uses the
+      <strong>HDSP</strong> protocol, intended for live, low-latency control rather than
+      pre-recorded motion.</p>
+      <ul>
+        <li>0 % is fully retracted, 100 % is fully extended.</li>
+        <li>Best paired with a gamepad or external controller for smooth input.</li>
+        <li>No script or pattern is needed — there's nothing to load, just move the slider.</li>
+      </ul>
+    `,
+  },
+};
 
 class App {
   constructor() {
     this.manager = new HandyManager();
     this.funscript = null;
     this.scriptHostUrl = null;
-    this.offset = 0;
+    this.offset = parseInt(getPref('defaultGlobalOffset'), 10) || 0;
     this.isPlaying = false;
     this.currentTime = 0;
     this.videoDuration = 0;
@@ -25,6 +80,11 @@ class App {
     this.initManualIPC();
     this.initTimeline();
     this.loadSavedState();
+    this.initPrefs();
+
+    // Manual/Queue panels live in this same window now — tell them the
+    // initial mode so they can show the correct side panel on startup.
+    window.electronAPI.sendToManual({ type: 'mode-changed', mode: this.mode });
   }
 
   initDOM() {
@@ -53,7 +113,6 @@ class App {
       timelinePlayhead: $('timeline-playhead'),
       timelineHover: $('timeline-hover'),
       timelineHoverTime: $('timeline-hover-time'),
-      playlistSection: $('playlist-section'),
       playlistItems: $('playlist-items'),
       playlistCount: $('playlist-count'),
     };
@@ -290,7 +349,6 @@ class App {
       }
     }
 
-    dom.playlistSection.style.display = '';
   }
 
   selectPlaylistItem(index) {
@@ -326,8 +384,9 @@ class App {
   clearPlaylist() {
     this.playlist = [];
     this.playlistIndex = -1;
-    this.dom.playlistSection.style.display = 'none';
-    this.dom.playlistItems.innerHTML = '';
+    this.dom.playlistItems.innerHTML =
+      '<div class="playlist-empty">Open a folder of videos to populate the library.</div>';
+    this.dom.playlistCount.textContent = '';
     // reset folder input so the same folder can be re-loaded
     this.dom.folderInput.value = '';
   }
@@ -418,6 +477,8 @@ class App {
         await this.setupHSP();
       } else if (mode === 'hamp') {
         await this.setupHAMP();
+      } else if (mode === 'direct') {
+        await this.setupHDSP();
       }
     }
   }
@@ -451,6 +512,9 @@ class App {
           break;
         case 'hamp-stop-devices':
           this.hampStopDevices(msg.tag, msg.deviceIndices);
+          break;
+        case 'hdsp-move':
+          this.hdspMove(msg.position, msg.duration);
           break;
       }
     });
@@ -525,14 +589,38 @@ class App {
     }
   }
 
+  // Remap a controller-chosen 0..100 value into a device's [min..max] range.
+  _scaleForDevice(value, devMin, devMax) {
+    const lo = Math.max(0, Math.min(100, devMin ?? 0));
+    const hi = Math.max(0, Math.min(100, devMax ?? 100));
+    if (hi <= lo) return lo;
+    return lo + (Math.max(0, Math.min(100, value)) / 100) * (hi - lo);
+  }
+
+  _hampScaledStroke(d, strokeMin, strokeMax) {
+    const min = this._scaleForDevice(strokeMin, d.manualStrokeMin, d.manualStrokeMax);
+    let max = this._scaleForDevice(strokeMax, d.manualStrokeMin, d.manualStrokeMax);
+    if (max <= min) max = Math.min(100, min + 1);
+    return { min, max };
+  }
+
+  _hampScaledVelocity(d, velocity) {
+    return this._scaleForDevice(velocity, d.manualSpeedMin, d.manualSpeedMax);
+  }
+
   async hampStartDevices(tag, deviceIndices, velocity, strokeMin, strokeMax) {
     const devices = deviceIndices
       .map(i => this.manager.devices[i])
       .filter(d => d?.hampReady);
     if (devices.length === 0) return;
     try {
-      await Promise.allSettled(devices.map(d => d.hampSetVelocity(velocity / 100)));
-      await Promise.allSettled(devices.map(d => d.hampSetStroke(strokeMin / 100, strokeMax / 100)));
+      await Promise.allSettled(devices.map(d =>
+        d.hampSetVelocity(this._hampScaledVelocity(d, velocity) / 100)
+      ));
+      await Promise.allSettled(devices.map(d => {
+        const { min, max } = this._hampScaledStroke(d, strokeMin, strokeMax);
+        return d.hampSetStroke(min / 100, max / 100);
+      }));
       await Promise.allSettled(devices.map(d => d.hampStart()));
       window.electronAPI.sendToManual({ type: 'hamp-playing-devices', tag, playing: true });
     } catch (err) {
@@ -546,8 +634,13 @@ class App {
       .filter(d => d?.hampReady);
     if (devices.length === 0) return;
     try {
-      await Promise.allSettled(devices.map(d => d.hampSetVelocity(velocity / 100)));
-      await Promise.allSettled(devices.map(d => d.hampSetStroke(strokeMin / 100, strokeMax / 100)));
+      await Promise.allSettled(devices.map(d =>
+        d.hampSetVelocity(this._hampScaledVelocity(d, velocity) / 100)
+      ));
+      await Promise.allSettled(devices.map(d => {
+        const { min, max } = this._hampScaledStroke(d, strokeMin, strokeMax);
+        return d.hampSetStroke(min / 100, max / 100);
+      }));
     } catch (err) {
       this.toast(`HAMP update error: ${err.message}`, 'error');
     }
@@ -564,6 +657,30 @@ class App {
     } catch (err) {
       this.toast(`HAMP stop error: ${err.message}`, 'error');
     }
+  }
+
+  // --- HDSP (Direct) ---
+
+  async setupHDSP() {
+    if (!this.manager.anyConnected) return;
+    try {
+      await this.manager.setupHDSPAll();
+      const readyCount = this.manager.hdspReadyDevices.length;
+      const connCount = this.manager.connectedDevices.length;
+      this.toast(`Direct ready on ${readyCount}/${connCount} device(s)`, 'info');
+      window.electronAPI.sendToManual({ type: 'hdsp-ready', ready: readyCount > 0 });
+      this.updateConnectionSummary();
+    } catch (err) {
+      this.toast(`Direct setup failed: ${err.message}`, 'error');
+      window.electronAPI.sendToManual({ type: 'hdsp-ready', ready: false });
+    }
+  }
+
+  async hdspMove(position, durationMs) {
+    if (!this.manager.anyHdspReady) return;
+    try {
+      await this.manager.hdspMoveAllToPercent(position, durationMs);
+    } catch { /* ignore transient errors during drag */ }
   }
 
   // --- HSP ---
@@ -700,11 +817,72 @@ class App {
     }
   }
 
+  // --- Preferences wiring ---
+
+  initPrefs() {
+    // Reflect default global offset in the on-screen offset input.
+    const inp = this.dom.offsetInput;
+    if (inp && (!inp.value || inp.value === '0')) {
+      inp.value = String(this.offset);
+    }
+
+    // Devices panel collapse toggle.
+    const collapseBtn = document.getElementById('devices-collapse-btn');
+    if (collapseBtn) {
+      const updateBtnTitle = () => {
+        const collapsed = !!getPref('devicesCollapsed');
+        collapseBtn.title = collapsed ? 'Expand devices panel' : 'Collapse devices panel';
+        collapseBtn.setAttribute('aria-label', collapseBtn.title);
+      };
+      updateBtnTitle();
+      collapseBtn.addEventListener('click', () => {
+        togglePref('devicesCollapsed');
+        updateBtnTitle();
+      });
+    }
+
+    this.initModeInfo();
+
+    // Live updates: re-arm the sync timer if its interval changes mid-session.
+    onPrefChange((key) => {
+      if (key === 'syncInterval' && this.syncTimerId) {
+        this.startSyncTimer();
+      }
+    });
+  }
+
+  // --- Mode info modal ---
+
+  initModeInfo() {
+    const root  = document.getElementById('mode-info-modal');
+    const btn   = document.getElementById('mode-info-btn');
+    const title = document.getElementById('mode-info-title');
+    const body  = document.getElementById('mode-info-body');
+    if (!root || !btn) return;
+
+    const open = () => {
+      const info = MODE_INFO[this.mode] ?? MODE_INFO.hssp;
+      title.textContent = info.title;
+      body.innerHTML = info.body;
+      root.hidden = false;
+    };
+    const close = () => { root.hidden = true; };
+
+    btn.addEventListener('click', open);
+    root.addEventListener('click', (e) => {
+      if (e.target?.dataset?.modeInfoClose !== undefined) close();
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !root.hidden) { e.preventDefault(); close(); }
+    });
+  }
+
   // --- Sync Timer ---
 
   startSyncTimer() {
     this.stopSyncTimer();
-    this.syncTimerId = setInterval(() => this.syncHandy(), 2000);
+    const interval = parseInt(getPref('syncInterval'), 10) || 2000;
+    this.syncTimerId = setInterval(() => this.syncHandy(), interval);
   }
 
   stopSyncTimer() {
@@ -770,7 +948,13 @@ class App {
 
   // --- Device List UI ---
 
-  addDeviceRow(connectionKey = '', deviceOffset = 0, nickname = '') {
+  addDeviceRow(connectionKey = '', deviceOffset = 0, nickname = '', manualScaler = null, settingsCollapsed = true) {
+    const ms = {
+      strokeMin: clamp01(manualScaler?.strokeMin, 0),
+      strokeMax: clamp01(manualScaler?.strokeMax, 100),
+      speedMin:  clamp01(manualScaler?.speedMin,  0),
+      speedMax:  clamp01(manualScaler?.speedMax,  100),
+    };
     const index = this.dom.devicesList.children.length;
     const row = document.createElement('div');
     row.className = 'device-row';
@@ -813,8 +997,14 @@ class App {
     reconnectBtn.innerHTML = '&#x21bb;';
     reconnectBtn.addEventListener('click', () => this.reconnectDevice(row));
 
+    const settingsToggleBtn = document.createElement('button');
+    settingsToggleBtn.className = 'btn-icon device-settings-toggle';
+    settingsToggleBtn.type = 'button';
+    settingsToggleBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+
     header.appendChild(label);
     header.appendChild(nicknameInput);
+    header.appendChild(settingsToggleBtn);
     header.appendChild(reconnectBtn);
     header.appendChild(removeBtn);
 
@@ -863,15 +1053,120 @@ class App {
     status.className = 'device-status';
     status.innerHTML = '<span class="status-dot disconnected"></span><span class="device-status-text">--</span>';
 
-    details.appendChild(offsetGroup);
     details.appendChild(status);
+
+    // Manual-mode per-device scalers. These remap the controller-chosen
+    // 0..100 range into [min..max] before being sent to this device.
+    // Inactive outside manual mode.
+    const buildScaler = (labelText, key, val) => {
+      const group = document.createElement('div');
+      group.className = 'device-scaler-group';
+      const label = document.createElement('span');
+      label.className = 'device-scaler-label';
+      label.textContent = labelText;
+      const inp = document.createElement('input');
+      inp.type = 'number';
+      inp.className = 'device-scaler-input';
+      inp.min = 0;
+      inp.max = 100;
+      inp.step = 1;
+      inp.value = val;
+      inp.dataset.scalerKey = key;
+      inp.addEventListener('change', () => this.applyDeviceScaler(row));
+      group.append(label, inp);
+      return group;
+    };
+
+    const buildScalerRow = (sectionText, minKey, minVal, maxKey, maxVal) => {
+      const r = document.createElement('div');
+      r.className = 'device-manual-scalers';
+      const section = document.createElement('span');
+      section.className = 'device-scaler-section';
+      section.textContent = sectionText;
+      r.append(
+        section,
+        buildScaler('min', minKey, minVal),
+        buildScaler('max', maxKey, maxVal),
+      );
+      return r;
+    };
+
+    const settings = document.createElement('div');
+    settings.className = 'device-settings';
+    settings.appendChild(offsetGroup);
+    settings.appendChild(buildScalerRow('Stroke', 'strokeMin', ms.strokeMin, 'strokeMax', ms.strokeMax));
+    settings.appendChild(buildScalerRow('Speed',  'speedMin',  ms.speedMin,  'speedMax',  ms.speedMax));
+
+    const applyCollapsed = (collapsed) => {
+      row.classList.toggle('settings-collapsed', collapsed);
+      settingsToggleBtn.setAttribute('aria-expanded', String(!collapsed));
+      settingsToggleBtn.title = collapsed ? 'Show device settings' : 'Hide device settings';
+      settingsToggleBtn.setAttribute('aria-label', settingsToggleBtn.title);
+    };
+    applyCollapsed(settingsCollapsed);
+    settingsToggleBtn.addEventListener('click', () => {
+      applyCollapsed(!row.classList.contains('settings-collapsed'));
+      this.saveState();
+    });
 
     row.appendChild(header);
     row.appendChild(input);
     row.appendChild(details);
+    row.appendChild(settings);
     this.dom.devicesList.appendChild(row);
     input.focus();
     this.saveState();
+  }
+
+  // Read scaler inputs back to the device object, persist, and push a
+  // live update if the device is currently playing in manual mode.
+  applyDeviceScaler(row) {
+    const inputs = row.querySelectorAll('.device-scaler-input');
+    const ms = { strokeMin: 0, strokeMax: 100, speedMin: 0, speedMax: 100 };
+    for (const inp of inputs) {
+      let v = parseInt(inp.value, 10);
+      if (!Number.isFinite(v)) v = 0;
+      v = Math.max(0, Math.min(100, v));
+      inp.value = v;
+      ms[inp.dataset.scalerKey] = v;
+    }
+    if (ms.strokeMax <= ms.strokeMin) {
+      ms.strokeMax = Math.min(100, ms.strokeMin + 1);
+      row.querySelector('.device-scaler-input[data-scaler-key="strokeMax"]').value = ms.strokeMax;
+    }
+    if (ms.speedMax <= ms.speedMin) {
+      ms.speedMax = Math.min(100, ms.speedMin + 1);
+      row.querySelector('.device-scaler-input[data-scaler-key="speedMax"]').value = ms.speedMax;
+    }
+
+    const device = row._device;
+    if (device) {
+      device.manualStrokeMin = ms.strokeMin;
+      device.manualStrokeMax = ms.strokeMax;
+      device.manualSpeedMin  = ms.speedMin;
+      device.manualSpeedMax  = ms.speedMax;
+    }
+    this.saveState();
+
+    // If we're in manual mode and this device is currently playing,
+    // re-issue the current velocity/stroke with the new scale factors.
+    if (this.mode !== 'hamp' || !device?.hampReady) return;
+    this.pushManualScalersForDevice(device);
+  }
+
+  // Reads the live slider values from the manual panel and pushes them to
+  // one specific device. Used when a per-device scaler changes mid-play.
+  pushManualScalersForDevice(device) {
+    const vSlider = document.getElementById('velocity-slider');
+    const minSlider = document.getElementById('stroke-min-slider');
+    const maxSlider = document.getElementById('stroke-max-slider');
+    if (!vSlider || !minSlider || !maxSlider) return;
+    const v   = parseInt(vSlider.value, 10);
+    const sMin = parseInt(minSlider.value, 10);
+    const sMax = parseInt(maxSlider.value, 10);
+    device.hampSetVelocity(this._hampScaledVelocity(device, v) / 100).catch(() => {});
+    const { min, max } = this._hampScaledStroke(device, sMin, sMax);
+    device.hampSetStroke(min / 100, max / 100).catch(() => {});
   }
 
   applyDeviceOffset(row, offsetInput, delta) {
@@ -921,7 +1216,11 @@ class App {
   setDeviceRowStatus(index, statusClass, text) {
     const row = this.dom.devicesList.querySelector(`.device-row[data-index="${index}"]`);
     if (!row) return;
-    row.querySelector('.status-dot').className = `status-dot ${statusClass}`;
+    const dot = row.querySelector('.status-dot');
+    dot.className = `status-dot ${statusClass}`;
+    const label = row.querySelector('.device-label')?.textContent ?? '';
+    const nickname = row.querySelector('.device-nickname-input')?.value?.trim() ?? '';
+    dot.title = `${label}${nickname ? ` ${nickname}` : ''} — ${text}`.trim();
     row.querySelector('.device-status-text').textContent = text;
   }
 
@@ -930,6 +1229,7 @@ class App {
     const connected = this.manager.connectedDevices.length;
     const ready = this.mode === 'hamp' ? this.manager.hampReadyDevices.length
       : (this.mode === 'hsp' || this.mode === 'queue') ? this.manager.hspReadyDevices.length
+      : this.mode === 'direct' ? this.manager.hdspReadyDevices.length
       : this.manager.readyDevices.length;
     const el = this.dom.connectionSummary;
 
@@ -957,17 +1257,22 @@ class App {
     const keysJson = localStorage.getItem('herdplayer_deviceKeys');
     const offsetsJson = localStorage.getItem('herdplayer_deviceOffsets');
     const nicknamesJson = localStorage.getItem('herdplayer_deviceNicknames');
+    const scalersJson  = localStorage.getItem('herdplayer_deviceManualScalers');
+    const collapsedJson = localStorage.getItem('herdplayer_deviceSettingsCollapsed');
 
     if (apiKey) this.dom.apiKey.value = apiKey;
 
-    let keys = [], offsets = [], nicknames = [];
+    let keys = [], offsets = [], nicknames = [], scalers = [], collapsed = [];
     try { keys = JSON.parse(keysJson) || []; } catch { /* ignore */ }
     try { offsets = JSON.parse(offsetsJson) || []; } catch { /* ignore */ }
     try { nicknames = JSON.parse(nicknamesJson) || []; } catch { /* ignore */ }
+    try { scalers = JSON.parse(scalersJson) || []; } catch { /* ignore */ }
+    try { collapsed = JSON.parse(collapsedJson) || []; } catch { /* ignore */ }
 
     if (keys.length === 0) keys = [''];
     for (let i = 0; i < keys.length; i++) {
-      this.addDeviceRow(keys[i], offsets[i] || 0, nicknames[i] || '');
+      const c = collapsed[i];
+      this.addDeviceRow(keys[i], offsets[i] || 0, nicknames[i] || '', scalers[i] || null, c == null ? true : !!c);
     }
 
   }
@@ -975,9 +1280,22 @@ class App {
   saveState() {
     localStorage.setItem('herdplayer_apiKey', this.dom.apiKey.value);
     const rows = this.dom.devicesList.querySelectorAll('.device-row');
-    localStorage.setItem('herdplayer_deviceKeys', JSON.stringify(Array.from(rows).map(r => r.querySelector('.device-key-input').value)));
-    localStorage.setItem('herdplayer_deviceOffsets', JSON.stringify(Array.from(rows).map(r => parseInt(r.querySelector('.device-offset-input')?.value, 10) || 0)));
-    localStorage.setItem('herdplayer_deviceNicknames', JSON.stringify(Array.from(rows).map(r => r.querySelector('.device-nickname-input').value)));
+    const rowArr = Array.from(rows);
+    localStorage.setItem('herdplayer_deviceKeys', JSON.stringify(rowArr.map(r => r.querySelector('.device-key-input').value)));
+    localStorage.setItem('herdplayer_deviceOffsets', JSON.stringify(rowArr.map(r => parseInt(r.querySelector('.device-offset-input')?.value, 10) || 0)));
+    localStorage.setItem('herdplayer_deviceNicknames', JSON.stringify(rowArr.map(r => r.querySelector('.device-nickname-input').value)));
+    localStorage.setItem('herdplayer_deviceManualScalers', JSON.stringify(rowArr.map(r => {
+      const get = (k) => parseInt(r.querySelector(`.device-scaler-input[data-scaler-key="${k}"]`)?.value, 10);
+      return {
+        strokeMin: clamp01(get('strokeMin'), 0),
+        strokeMax: clamp01(get('strokeMax'), 100),
+        speedMin:  clamp01(get('speedMin'),  0),
+        speedMax:  clamp01(get('speedMax'),  100),
+      };
+    })));
+    localStorage.setItem('herdplayer_deviceSettingsCollapsed', JSON.stringify(
+      rowArr.map(r => r.classList.contains('settings-collapsed'))
+    ));
   }
 
   // --- Connection ---
@@ -1002,6 +1320,11 @@ class App {
       if (device) { device.apiKey = apiKey; device.connectionKey = key; }
       else { device = new HandyDevice(apiKey, key); row._device = device; }
       device.deviceOffset = parseInt(row.querySelector('.device-offset-input')?.value, 10) || 0;
+      const s = readDeviceScalers(row);
+      device.manualStrokeMin = s.strokeMin;
+      device.manualStrokeMax = s.strokeMax;
+      device.manualSpeedMin  = s.speedMin;
+      device.manualSpeedMax  = s.speedMax;
       device.connected = false;
       device.hsspReady = false;
       this.manager.devices.push(device);
@@ -1034,8 +1357,9 @@ class App {
       this.dom.syncInfo.style.display = 'flex';
       this.dom.syncOffsetDisplay.textContent = `~${Math.round(this.manager.connectedDevices.reduce((s, d) => s + d.csOffset, 0) / connected)}ms`;
       if (this.mode === 'hssp' && this.scriptHostUrl) await this.setupHSSP();
-      else if (this.mode === 'hsp') await this.setupHSP();
+      else if (this.mode === 'hsp' || this.mode === 'queue') await this.setupHSP();
       else if (this.mode === 'hamp') await this.setupHAMP();
+      else if (this.mode === 'direct') await this.setupHDSP();
     } else {
       this.toast('No devices connected', 'error');
     }
@@ -1058,10 +1382,16 @@ class App {
     if (!this.manager.devices.includes(device)) this.manager.devices.push(device);
 
     device.deviceOffset = parseInt(row.querySelector('.device-offset-input')?.value, 10) || 0;
+    const s = readDeviceScalers(row);
+    device.manualStrokeMin = s.strokeMin;
+    device.manualStrokeMax = s.strokeMax;
+    device.manualSpeedMin  = s.speedMin;
+    device.manualSpeedMax  = s.speedMax;
     device.connected = false;
     device.hsspReady = false;
     device.hampReady = false;
     device.hspReady = false;
+    device.hdspReady = false;
 
     try {
       this.setDeviceRowStatus(rowIndex, 'syncing', 'Connecting...');
@@ -1096,6 +1426,11 @@ class App {
         device.hampReady = true;
         window.electronAPI.sendToManual({ type: 'hamp-ready', ready: this.manager.anyHampReady });
         this.sendDevicesUpdate();
+      } else if (this.mode === 'direct') {
+        this.setDeviceRowStatus(rowIndex, 'syncing', 'Setting up Direct...');
+        await device.setMode(DeviceMode.HDSP);
+        device.hdspReady = true;
+        window.electronAPI.sendToManual({ type: 'hdsp-ready', ready: this.manager.anyHdspReady });
       }
 
       this.setDeviceRowStatus(rowIndex, 'connected', `${device.info?.hw_model_name || 'Handy'} (${Math.round(device.csOffset)}ms)`);
@@ -1120,6 +1455,22 @@ class App {
       el.addEventListener('animationend', () => el.remove());
     }, 3500);
   }
+}
+
+function clamp01(v, fallback) {
+  const n = parseInt(v, 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.min(100, n));
+}
+
+function readDeviceScalers(row) {
+  const get = (k) => parseInt(row.querySelector(`.device-scaler-input[data-scaler-key="${k}"]`)?.value, 10);
+  return {
+    strokeMin: clamp01(get('strokeMin'), 0),
+    strokeMax: clamp01(get('strokeMax'), 100),
+    speedMin:  clamp01(get('speedMin'),  0),
+    speedMax:  clamp01(get('speedMax'),  100),
+  };
 }
 
 function formatTime(seconds) {

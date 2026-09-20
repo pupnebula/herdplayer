@@ -1,9 +1,10 @@
 delete process.env.ELECTRON_RUN_AS_NODE;
 
-const { app, BrowserWindow, ipcMain, screen, protocol } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, protocol, shell, dialog } = require('electron');
 const path = require('path');
 const fs   = require('fs');
 const { Readable } = require('stream');
+const { verifyToken } = require('./auth');
 
 // Use the ANGLE GL backend with vulkan to prevent GPU compositor crashes (exit_code=34)
 app.commandLine.appendSwitch('use-gl', 'angle');
@@ -18,49 +19,47 @@ protocol.registerSchemesAsPrivileged([{
 
 let controlWindow = null;
 let videoWindow = null;
-let manualWindow = null;
 
 function createWindows() {
   const wa = screen.getPrimaryDisplay().workArea;
 
-  const CONTROL_W = 460;
-  const VIDEO_W   = 860;
-  const MANUAL_W  = 280;
-  const WIN_H     = 700;
-  const TOTAL_W   = CONTROL_W + VIDEO_W + MANUAL_W;
+  // Desktop-oriented sizes.  Control window is now a single roomy window
+  // that holds everything except the video.
+  const CONTROL_W = 1200;
+  const CONTROL_H = 780;
+  const VIDEO_W   = 960;
 
-  let controlW, videoW, manualW, winH, startX, startY;
+  let controlW, controlH, videoW, videoH, startX, startY;
 
-  if (wa.width >= TOTAL_W + 40) {
-    // Large screen: use fixed sizes, centered
+  const TOTAL_W = CONTROL_W + VIDEO_W + 40; // 40px gap between windows
+
+  if (wa.width >= TOTAL_W && wa.height >= CONTROL_H + 40) {
+    // Enough room: place them side-by-side, centered.
     controlW = CONTROL_W;
+    controlH = CONTROL_H;
     videoW   = VIDEO_W;
-    manualW  = MANUAL_W;
-    winH     = Math.min(WIN_H, wa.height - 40);
-    startX   = wa.x + Math.floor((wa.width - TOTAL_W) / 2);
-    startY   = wa.y + Math.floor((wa.height - winH) / 2);
+    videoH   = Math.min(Math.round(videoW * 9 / 16), wa.height - 40);
+    startX   = wa.x + Math.floor((wa.width - (controlW + videoW)) / 2);
+    startY   = wa.y + Math.floor((wa.height - controlH) / 2);
   } else {
-    // Small screen: fill available space
-    manualW  = Math.min(MANUAL_W, Math.floor(wa.width * 0.18));
-    controlW = Math.floor((wa.width - manualW) * 0.35);
-    videoW   = wa.width - controlW - manualW;
-    winH     = wa.height;
+    // Small screen fallback: control takes ~60% width, video takes remainder.
+    controlH = Math.min(CONTROL_H, wa.height - 20);
+    controlW = Math.min(CONTROL_W, Math.floor(wa.width * 0.6));
+    videoW   = wa.width - controlW;
+    videoH   = Math.min(Math.round(videoW * 9 / 16), controlH);
     startX   = wa.x;
     startY   = wa.y;
   }
-
-  // Video window height: 16:9 based on its width, clamped to available space
-  const videoH = Math.min(Math.round(videoW * 9 / 16), winH);
 
   const icon = path.join(__dirname, 'build', 'icon.ico');
 
   controlWindow = new BrowserWindow({
     width: controlW,
-    height: winH,
+    height: controlH,
     x: startX,
     y: startY,
-    minWidth: 380,
-    minHeight: 400,
+    minWidth: 500,
+    minHeight: 300,
     backgroundColor: '#202020',
     autoHideMenuBar: true,
     icon,
@@ -88,39 +87,22 @@ function createWindows() {
     },
   });
 
-  manualWindow = new BrowserWindow({
-    width: manualW,
-    height: winH,
-    x: startX + controlW + videoW,
-    y: startY,
-    minWidth: 220,
-    minHeight: 300,
-    backgroundColor: '#202020',
-    autoHideMenuBar: true,
-    icon,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
-
   controlWindow.loadFile('index.html');
   videoWindow.loadFile('video.html');
-  manualWindow.loadFile('manual.html');
 
   const closeAll = () => {
-    for (const w of [controlWindow, videoWindow, manualWindow]) {
+    for (const w of [controlWindow, videoWindow]) {
       if (w && !w.isDestroyed()) w.close();
     }
   };
 
   controlWindow.on('closed', () => { controlWindow = null; closeAll(); });
   videoWindow.on('closed', () => { videoWindow = null; closeAll(); });
-  manualWindow.on('closed', () => { manualWindow = null; closeAll(); });
 }
 
-// Bidirectional IPC forwarding
+// Bidirectional IPC forwarding between control and video windows.
+// The manual panel lives inside the control window now and is wired
+// in-process, so no 'to-manual' / 'from-manual' channels are needed.
 ipcMain.on('to-video', (_event, msg) => {
   if (videoWindow && !videoWindow.isDestroyed()) {
     videoWindow.webContents.send('from-control', msg);
@@ -130,18 +112,6 @@ ipcMain.on('to-video', (_event, msg) => {
 ipcMain.on('to-control', (_event, msg) => {
   if (controlWindow && !controlWindow.isDestroyed()) {
     controlWindow.webContents.send('from-video', msg);
-  }
-});
-
-ipcMain.on('to-manual', (_event, msg) => {
-  if (manualWindow && !manualWindow.isDestroyed()) {
-    manualWindow.webContents.send('from-control', msg);
-  }
-});
-
-ipcMain.on('from-manual', (_event, msg) => {
-  if (controlWindow && !controlWindow.isDestroyed()) {
-    controlWindow.webContents.send('from-manual', msg);
   }
 });
 
@@ -210,7 +180,68 @@ ipcMain.handle('read-pattern', (_event, filename) => {
   try { return fs.readFileSync(filePath, 'utf8'); } catch { return null; }
 });
 
-app.whenReady().then(() => {
+// --- Preferences IPC ---
+
+ipcMain.handle('prefs:get-info', () => ({
+  version: app.getVersion(),
+  electronVersion: process.versions.electron,
+  patternsPath: path.join(__dirname, 'patterns'),
+  logsPath: app.getPath('logs'),
+  specPath: path.join(__dirname, 'spec.yaml'),
+}));
+
+ipcMain.handle('prefs:open-path', async (_event, p) => {
+  if (typeof p !== 'string' || !p) return false;
+  const err = await shell.openPath(p);
+  return err === '';
+});
+
+ipcMain.handle('prefs:open-external', async (_event, url) => {
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return false;
+  await shell.openExternal(url);
+  return true;
+});
+
+ipcMain.handle('prefs:reveal-path', (_event, p) => {
+  if (typeof p !== 'string' || !p) return false;
+  shell.showItemInFolder(p);
+  return true;
+});
+
+ipcMain.handle('prefs:choose-folder', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory'],
+    title: 'Choose patterns folder',
+  });
+  if (result.canceled || !result.filePaths.length) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle('prefs:confirm', async (_event, opts) => {
+  const result = await dialog.showMessageBox({
+    type: 'warning',
+    buttons: ['Cancel', 'Confirm'],
+    defaultId: 0,
+    cancelId: 0,
+    title: opts?.title || 'Confirm',
+    message: opts?.message || 'Are you sure?',
+    detail: opts?.detail || '',
+  });
+  return result.response === 1;
+});
+
+app.whenReady().then(async () => {
+  const result = await verifyToken();
+  if (!result.ok) {
+    dialog.showMessageBoxSync({
+      type: 'error',
+      title: 'HerdPlayer',
+      message: 'HerdPlayer cannot start.',
+      detail: result.reason,
+    });
+    app.exit(1);
+    return;
+  }
   protocol.handle('localfile', handleLocalFile);
   createWindows();
 });
