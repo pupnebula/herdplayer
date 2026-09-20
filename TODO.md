@@ -44,7 +44,7 @@ Acceptance criteria:
 - Setup methods do not mark the protocol ready after such a response.
 - Stop/movement callers can surface the device error instead of reporting success.
 
-### [ ] Stop discarding `Promise.allSettled()` failures
+### [x] Stop discarding `Promise.allSettled()` failures
 
 Affected: `js/handy.js` manager broadcast methods and the HAMP/HSP device-group
 operations in `js/app.js`.

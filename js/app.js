@@ -454,19 +454,34 @@ class App {
 
     // Stop any active HSSP playback when switching away
     if (prev === 'hssp' && this.manager.anyReady) {
-      try { await this.manager.hsspStopAll(); } catch { /* ignore */ }
+      try {
+        const summary = await this.manager.hsspStopAll();
+        this.reportPartialFailure(summary, 'HSSP stop');
+      } catch (err) {
+        this.toast(`HSSP stop failed: ${err.message}`, 'error');
+      }
       this.stopSyncTimer();
     }
 
     // Stop HSP when switching away from any HSP-based mode
     if ((prev === 'hsp' || prev === 'queue') && this.manager.anyHspReady) {
-      try { await this.manager.hspStopAll(); } catch { /* ignore */ }
-      this.hspPlaying = false;
+      try {
+        const summary = await this.manager.hspStopAll();
+        this.reportPartialFailure(summary, 'HSP stop');
+        this.hspPlaying = !summary.ok;
+      } catch (err) {
+        this.toast(`HSP stop failed: ${err.message}`, 'error');
+      }
     }
 
     // Stop HAMP when switching away
     if (prev === 'hamp' && this.manager.anyHampReady) {
-      try { await this.manager.hampStopAll(); } catch { /* ignore */ }
+      try {
+        const summary = await this.manager.hampStopAll();
+        this.reportPartialFailure(summary, 'HAMP stop');
+      } catch (err) {
+        this.toast(`HAMP stop failed: ${err.message}`, 'error');
+      }
     }
 
     // Set up devices for the new mode
@@ -537,6 +552,22 @@ class App {
     window.electronAPI.sendToManual({ type: 'devices-updated', devices });
   }
 
+  successfulDevices(summary) {
+    return summary.succeeded.map(result => result.device);
+  }
+
+  successfulDeviceIndices(summary) {
+    return summary.succeeded
+      .map(result => result.deviceIndex)
+      .filter(index => index >= 0);
+  }
+
+  reportPartialFailure(summary, label, requestedCount = summary.total) {
+    if (summary.successCount >= requestedCount) return;
+    const failed = requestedCount - summary.successCount;
+    this.toast(`${label} reached ${summary.successCount}/${requestedCount} device(s); ${failed} failed`, 'error');
+  }
+
   async hspStartDevices(tag, deviceIndices, points) {
     const devices = deviceIndices
       .map(i => this.manager.devices[i])
@@ -544,15 +575,35 @@ class App {
     if (devices.length === 0) return;
     try {
       const tailIndex = points.length - 1;
+      let summary;
       if (points.length <= 100) {
-        await Promise.allSettled(devices.map(d =>
-          d.hspPlayWithAdd(d.getEstimatedServerTime(), points, true, tailIndex, 0, true, 1.0)
-        ));
+        summary = await this.manager.broadcast(
+          'Group HSP add and play',
+          devices,
+          d => d.hspPlayWithAdd(d.getEstimatedServerTime(), points, true, tailIndex, 0, true, 1.0),
+        );
       } else {
-        await Promise.allSettled(devices.map(d => d.hspAddPoints(points, true, tailIndex)));
-        await Promise.allSettled(devices.map(d => d.hspPlay(d.getEstimatedServerTime(), 0, true, 1.0)));
+        const addSummary = await this.manager.broadcast(
+          'Group HSP add points',
+          devices,
+          d => d.hspAddPoints(points, true, tailIndex),
+        );
+        summary = await this.manager.broadcast(
+          'Group HSP play',
+          this.successfulDevices(addSummary),
+          d => d.hspPlay(d.getEstimatedServerTime(), 0, true, 1.0),
+        );
       }
-      window.electronAPI.sendToManual({ type: 'hsp-playing-devices', tag, playing: true });
+      const succeeded = this.successfulDeviceIndices(summary);
+      if (succeeded.length > 0) {
+        window.electronAPI.sendToManual({
+          type: 'hsp-playing-devices',
+          tag,
+          deviceIndices: succeeded,
+          playing: true,
+        });
+      }
+      this.reportPartialFailure(summary, 'HSP start', devices.length);
     } catch (err) {
       this.toast(`HSP start error: ${err.message}`, 'error');
     }
@@ -564,8 +615,17 @@ class App {
       .filter(d => d?.hspReady);
     if (devices.length === 0) return;
     try {
-      await Promise.allSettled(devices.map(d => d.hspStop()));
-      window.electronAPI.sendToManual({ type: 'hsp-playing-devices', tag, playing: false });
+      const summary = await this.manager.broadcast('Group HSP stop', devices, d => d.hspStop());
+      const succeeded = this.successfulDeviceIndices(summary);
+      if (succeeded.length > 0) {
+        window.electronAPI.sendToManual({
+          type: 'hsp-playing-devices',
+          tag,
+          deviceIndices: succeeded,
+          playing: false,
+        });
+      }
+      this.reportPartialFailure(summary, 'HSP stop', devices.length);
     } catch (err) {
       this.toast(`HSP stop error: ${err.message}`, 'error');
     }
@@ -576,11 +636,12 @@ class App {
   async setupHAMP() {
     if (!this.manager.anyConnected) return;
     try {
-      await this.manager.setupHAMPAll();
-      const readyCount = this.manager.hampReadyDevices.length;
-      const connCount = this.manager.connectedDevices.length;
-      this.toast(`HAMP ready on ${readyCount}/${connCount} device(s)`, 'info');
-      window.electronAPI.sendToManual({ type: 'hamp-ready', ready: readyCount > 0 });
+      const summary = await this.manager.setupHAMPAll();
+      this.toast(
+        `HAMP ready on ${summary.successCount}/${summary.total} device(s)`,
+        summary.partial ? 'error' : 'info',
+      );
+      window.electronAPI.sendToManual({ type: 'hamp-ready', ready: summary.successCount > 0 });
       this.sendDevicesUpdate();
       this.updateConnectionSummary();
     } catch (err) {
@@ -614,15 +675,34 @@ class App {
       .filter(d => d?.hampReady);
     if (devices.length === 0) return;
     try {
-      await Promise.allSettled(devices.map(d =>
-        d.hampSetVelocity(this._hampScaledVelocity(d, velocity) / 100)
-      ));
-      await Promise.allSettled(devices.map(d => {
-        const { min, max } = this._hampScaledStroke(d, strokeMin, strokeMax);
-        return d.hampSetStroke(min / 100, max / 100);
-      }));
-      await Promise.allSettled(devices.map(d => d.hampStart()));
-      window.electronAPI.sendToManual({ type: 'hamp-playing-devices', tag, playing: true });
+      const velocitySummary = await this.manager.broadcast(
+        'Group HAMP velocity update',
+        devices,
+        d => d.hampSetVelocity(this._hampScaledVelocity(d, velocity) / 100),
+      );
+      const strokeSummary = await this.manager.broadcast(
+        'Group HAMP stroke update',
+        this.successfulDevices(velocitySummary),
+        d => {
+          const { min, max } = this._hampScaledStroke(d, strokeMin, strokeMax);
+          return d.hampSetStroke(min / 100, max / 100);
+        },
+      );
+      const startSummary = await this.manager.broadcast(
+        'Group HAMP start',
+        this.successfulDevices(strokeSummary),
+        d => d.hampStart(),
+      );
+      const succeeded = this.successfulDeviceIndices(startSummary);
+      if (succeeded.length > 0) {
+        window.electronAPI.sendToManual({
+          type: 'hamp-playing-devices',
+          tag,
+          deviceIndices: succeeded,
+          playing: true,
+        });
+      }
+      this.reportPartialFailure(startSummary, 'HAMP start', devices.length);
     } catch (err) {
       this.toast(`HAMP start error: ${err.message}`, 'error');
     }
@@ -634,13 +714,20 @@ class App {
       .filter(d => d?.hampReady);
     if (devices.length === 0) return;
     try {
-      await Promise.allSettled(devices.map(d =>
-        d.hampSetVelocity(this._hampScaledVelocity(d, velocity) / 100)
-      ));
-      await Promise.allSettled(devices.map(d => {
-        const { min, max } = this._hampScaledStroke(d, strokeMin, strokeMax);
-        return d.hampSetStroke(min / 100, max / 100);
-      }));
+      const velocitySummary = await this.manager.broadcast(
+        'Group HAMP velocity update',
+        devices,
+        d => d.hampSetVelocity(this._hampScaledVelocity(d, velocity) / 100),
+      );
+      const strokeSummary = await this.manager.broadcast(
+        'Group HAMP stroke update',
+        this.successfulDevices(velocitySummary),
+        d => {
+          const { min, max } = this._hampScaledStroke(d, strokeMin, strokeMax);
+          return d.hampSetStroke(min / 100, max / 100);
+        },
+      );
+      this.reportPartialFailure(strokeSummary, 'HAMP update', devices.length);
     } catch (err) {
       this.toast(`HAMP update error: ${err.message}`, 'error');
     }
@@ -652,8 +739,17 @@ class App {
       .filter(d => d?.hampReady);
     if (devices.length === 0) return;
     try {
-      await Promise.allSettled(devices.map(d => d.hampStop()));
-      window.electronAPI.sendToManual({ type: 'hamp-playing-devices', tag, playing: false });
+      const summary = await this.manager.broadcast('Group HAMP stop', devices, d => d.hampStop());
+      const succeeded = this.successfulDeviceIndices(summary);
+      if (succeeded.length > 0) {
+        window.electronAPI.sendToManual({
+          type: 'hamp-playing-devices',
+          tag,
+          deviceIndices: succeeded,
+          playing: false,
+        });
+      }
+      this.reportPartialFailure(summary, 'HAMP stop', devices.length);
     } catch (err) {
       this.toast(`HAMP stop error: ${err.message}`, 'error');
     }
@@ -664,11 +760,12 @@ class App {
   async setupHDSP() {
     if (!this.manager.anyConnected) return;
     try {
-      await this.manager.setupHDSPAll();
-      const readyCount = this.manager.hdspReadyDevices.length;
-      const connCount = this.manager.connectedDevices.length;
-      this.toast(`Direct ready on ${readyCount}/${connCount} device(s)`, 'info');
-      window.electronAPI.sendToManual({ type: 'hdsp-ready', ready: readyCount > 0 });
+      const summary = await this.manager.setupHDSPAll();
+      this.toast(
+        `Direct ready on ${summary.successCount}/${summary.total} device(s)`,
+        summary.partial ? 'error' : 'info',
+      );
+      window.electronAPI.sendToManual({ type: 'hdsp-ready', ready: summary.successCount > 0 });
       this.updateConnectionSummary();
     } catch (err) {
       this.toast(`Direct setup failed: ${err.message}`, 'error');
@@ -679,8 +776,11 @@ class App {
   async hdspMove(position, durationMs) {
     if (!this.manager.anyHdspReady) return;
     try {
-      await this.manager.hdspMoveAllToPercent(position, durationMs);
-    } catch { /* ignore transient errors during drag */ }
+      const summary = await this.manager.hdspMoveAllToPercent(position, durationMs);
+      if (summary.partial) console.warn('HDSP move partially failed', summary.failed);
+    } catch (err) {
+      console.warn('HDSP move failed', err);
+    }
   }
 
   // --- HSP ---
@@ -688,11 +788,12 @@ class App {
   async setupHSP() {
     if (!this.manager.anyConnected) return;
     try {
-      await this.manager.setupHSPAll();
-      const readyCount = this.manager.hspReadyDevices.length;
-      const connCount = this.manager.connectedDevices.length;
-      this.toast(`HSP ready on ${readyCount}/${connCount} device(s)`, 'info');
-      window.electronAPI.sendToManual({ type: 'hsp-ready', ready: readyCount > 0 });
+      const summary = await this.manager.setupHSPAll();
+      this.toast(
+        `HSP ready on ${summary.successCount}/${summary.total} device(s)`,
+        summary.partial ? 'error' : 'info',
+      );
+      window.electronAPI.sendToManual({ type: 'hsp-ready', ready: summary.successCount > 0 });
       this.sendDevicesUpdate();
       this.updateConnectionSummary();
     } catch (err) {
@@ -703,18 +804,29 @@ class App {
 
   async hspStart(points, playbackRate = 1.0, loop = true) {
     if (!this.manager.anyHspReady) return;
+    const requestedCount = this.manager.hspReadyDevices.length;
     try {
       this.hspTailIndex = points.length - 1;
+      let summary;
       if (points.length <= 100) {
         // Single request: embed add inside play to reduce latency
-        await this.manager.hspPlayAllWithAdd(points, true, this.hspTailIndex, loop, playbackRate);
+        summary = await this.manager.hspPlayAllWithAdd(points, true, this.hspTailIndex, loop, playbackRate);
       } else {
         // Flush old buffer, load new points, then play
-        await this.manager.hspAddPointsAll(points, true, this.hspTailIndex);
-        await this.manager.hspPlayAll(loop, playbackRate);
+        const addSummary = await this.manager.hspAddPointsAll(points, true, this.hspTailIndex);
+        summary = await this.manager.hspPlayAll(
+          loop,
+          playbackRate,
+          this.successfulDevices(addSummary),
+        );
       }
       this.hspPlaying = true;
-      window.electronAPI.sendToManual({ type: 'hsp-playing', playing: true });
+      window.electronAPI.sendToManual({
+        type: 'hsp-playing',
+        deviceIndices: this.successfulDeviceIndices(summary),
+        playing: true,
+      });
+      this.reportPartialFailure(summary, 'HSP start', requestedCount);
       this.openHspSSE();
     } catch (err) {
       this.toast(`HSP start error: ${err.message}`, 'error');
@@ -722,15 +834,31 @@ class App {
   }
 
   async hspStop() {
-    if (!this.manager.anyHspReady) return;
+    if (!this.manager.anyHspReady) {
+      this.toast('Emergency stop could not be sent: no HSP-ready devices are reachable', 'error');
+      return;
+    }
     try {
-      this.closeHspSSE();
-      await this.manager.hspStopAll();
-      this.hspPlaying = false;
-      this.hspTailIndex = 0;
-      window.electronAPI.sendToManual({ type: 'hsp-playing', playing: false });
+      const summary = await this.manager.hspStopAll();
+      const succeeded = this.successfulDeviceIndices(summary);
+      window.electronAPI.sendToManual({
+        type: 'hsp-playing',
+        deviceIndices: succeeded,
+        playing: false,
+      });
+      if (summary.ok) {
+        this.closeHspSSE();
+        this.hspPlaying = false;
+        this.hspTailIndex = 0;
+      } else {
+        this.hspPlaying = true;
+        this.toast(
+          `Emergency stop reached ${summary.successCount}/${summary.total} device(s); ${summary.failureCount} may still be moving`,
+          'error',
+        );
+      }
     } catch (err) {
-      this.toast(`HSP stop error: ${err.message}`, 'error');
+      this.toast(`Emergency stop failed: ${err.message}. Devices may still be moving`, 'error');
     }
   }
 
@@ -748,7 +876,8 @@ class App {
   async hspSetRate(rate) {
     if (!this.manager.anyHspReady || !this.hspPlaying) return;
     try {
-      await this.manager.hspPlayAll(true, rate);
+      const summary = await this.manager.hspPlayAll(true, rate);
+      this.reportPartialFailure(summary, 'Rate change');
     } catch (err) {
       this.toast(`Rate change error: ${err.message}`, 'error');
     }
@@ -758,9 +887,12 @@ class App {
     if (!this.manager.anyHspReady || !this.hspPlaying) return;
     try {
       const newTail = this.hspTailIndex + points.length;
-      await this.manager.hspAddPointsAll(points, false, newTail);
+      const summary = await this.manager.hspAddPointsAll(points, false, newTail);
       this.hspTailIndex = newTail;
-    } catch { /* ignore transient errors during append */ }
+      this.reportPartialFailure(summary, 'Queue append');
+    } catch (err) {
+      this.toast(`Queue append failed: ${err.message}`, 'error');
+    }
   }
 
   // --- HSSP ---
@@ -768,10 +900,11 @@ class App {
   async setupHSSP() {
     if (!this.scriptHostUrl || !this.manager.anyConnected) return;
     try {
-      await this.manager.setupHSSPAll(this.scriptHostUrl);
-      const readyCount = this.manager.readyDevices.length;
-      const connCount = this.manager.connectedDevices.length;
-      this.toast(`HSSP ready on ${readyCount}/${connCount} device(s)`, 'info');
+      const summary = await this.manager.setupHSSPAll(this.scriptHostUrl);
+      this.toast(
+        `HSSP ready on ${summary.successCount}/${summary.total} device(s)`,
+        summary.partial ? 'error' : 'info',
+      );
       this.updateConnectionSummary();
     } catch (err) {
       this.toast(`HSSP setup failed: ${err.message}`, 'error');
@@ -785,7 +918,8 @@ class App {
     if (this.mode !== 'hssp' || !this.manager.anyReady) return;
     try {
       const startMs = this.currentTime * 1000 + this.offset;
-      await this.manager.hsspPlayAll(startMs);
+      const summary = await this.manager.hsspPlayAll(startMs);
+      this.reportPartialFailure(summary, 'Handy play');
       this.startSyncTimer();
     } catch (err) {
       this.toast(`Handy play error: ${err.message}`, 'error');
@@ -796,22 +930,38 @@ class App {
     this.isPlaying = false;
     this.stopSyncTimer();
     if (this.mode !== 'hssp' || !this.manager.anyReady) return;
-    try { await this.manager.hsspPauseAll(); } catch { /* ignore */ }
+    try {
+      const summary = await this.manager.hsspPauseAll();
+      this.reportPartialFailure(summary, 'Handy pause');
+    } catch (err) {
+      this.toast(`Handy pause error: ${err.message}`, 'error');
+    }
   }
 
   async onVideoEnded() {
     this.isPlaying = false;
     this.stopSyncTimer();
     if (this.mode !== 'hssp' || !this.manager.anyReady) return;
-    try { await this.manager.hsspStopAll(); } catch { /* ignore */ }
+    try {
+      const summary = await this.manager.hsspStopAll();
+      this.reportPartialFailure(summary, 'Handy stop');
+    } catch (err) {
+      this.toast(`Handy stop error: ${err.message}`, 'error');
+    }
   }
 
   async onVideoSeeked() {
     if (this.mode !== 'hssp' || !this.isPlaying || !this.manager.anyReady) return;
     try {
-      await this.manager.hsspStopAll();
+      const stopSummary = await this.manager.hsspStopAll();
+      this.reportPartialFailure(stopSummary, 'Seek stop');
       const startMs = this.currentTime * 1000 + this.offset;
-      await this.manager.hsspPlayAll(startMs);
+      const playSummary = await this.manager.hsspPlayAll(
+        startMs,
+        1.0,
+        this.successfulDevices(stopSummary),
+      );
+      this.reportPartialFailure(playSummary, 'Seek restart', stopSummary.successCount);
     } catch (err) {
       this.toast(`Seek sync error: ${err.message}`, 'error');
     }
@@ -897,8 +1047,11 @@ class App {
     if (!this.isPlaying || !this.manager.anyReady) return;
     try {
       const currentMs = this.currentTime * 1000 + this.offset;
-      await this.manager.hsspSyncTimeAll(currentMs);
-    } catch { /* ignore */ }
+      const summary = await this.manager.hsspSyncTimeAll(currentMs);
+      if (summary.partial) console.warn('HSSP sync partially failed', summary.failed);
+    } catch (err) {
+      console.warn('HSSP sync failed', err);
+    }
   }
 
   // --- Offset ---
@@ -1334,22 +1487,29 @@ class App {
 
     this.dom.connectBtn.disabled = true;
 
-    await this.manager.connectAll((deviceIdx, status, ...extra) => {
-      const rowIdx = rowMap[deviceIdx];
-      switch (status) {
-        case 'connecting': this.setDeviceRowStatus(rowIdx, 'syncing', 'Connecting...'); break;
-        case 'not_found': this.setDeviceRowStatus(rowIdx, 'error', 'Not found'); break;
-        case 'syncing': this.setDeviceRowStatus(rowIdx, 'syncing', `Syncing ${extra[0]}/${extra[1]}`); break;
-        case 'connected': {
-          const device = this.manager.getDevice(deviceIdx);
-          this.setDeviceRowStatus(rowIdx, 'connected', `${device.info?.hw_model_name || 'Handy'} (${Math.round(device.csOffset)}ms)`);
-          break;
+    try {
+      await this.manager.connectAll((deviceIdx, status, ...extra) => {
+        const rowIdx = rowMap[deviceIdx];
+        switch (status) {
+          case 'connecting': this.setDeviceRowStatus(rowIdx, 'syncing', 'Connecting...'); break;
+          case 'not_found': this.setDeviceRowStatus(rowIdx, 'error', 'Not found'); break;
+          case 'syncing': this.setDeviceRowStatus(rowIdx, 'syncing', `Syncing ${extra[0]}/${extra[1]}`); break;
+          case 'connected': {
+            const device = this.manager.getDevice(deviceIdx);
+            this.setDeviceRowStatus(rowIdx, 'connected', `${device.info?.hw_model_name || 'Handy'} (${Math.round(device.csOffset)}ms)`);
+            break;
+          }
+          case 'error': this.setDeviceRowStatus(rowIdx, 'error', `Error: ${extra[0]}`); break;
         }
-        case 'error': this.setDeviceRowStatus(rowIdx, 'error', `Error: ${extra[0]}`); break;
-      }
-    });
+      });
+    } catch (err) {
+      // Per-device statuses are already displayed. An all-failed summary is
+      // handled by the zero-connected branch below.
+      if (!err.summary) this.toast(`Connection error: ${err.message}`, 'error');
+    } finally {
+      this.dom.connectBtn.disabled = false;
+    }
 
-    this.dom.connectBtn.disabled = false;
     this.updateConnectionSummary();
 
     const connected = this.manager.connectedDevices.length;

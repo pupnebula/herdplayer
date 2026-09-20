@@ -6,6 +6,7 @@ const source = await readFile(new URL('../js/handy.js', import.meta.url), 'utf8'
 const handy = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 const {
+  HandyBroadcastError,
   HandyDevice,
   HandyDeviceError,
   HandyHttpError,
@@ -145,4 +146,78 @@ test('a disconnected setup failure cannot mark a succeeding device unready', asy
   assert.equal(offline.hsspReady, false);
   assert.equal(online.connected, true);
   assert.equal(online.hsspReady, true);
+});
+
+test('broadcast summaries report every successful device', async () => {
+  const manager = new HandyManager();
+  const first = manager.addDevice('first');
+  const second = manager.addDevice('second');
+  first.hampReady = true;
+  second.hampReady = true;
+  first.hampStop = async () => ({ stopped: 'first' });
+  second.hampStop = async () => ({ stopped: 'second' });
+
+  const summary = await manager.hampStopAll();
+
+  assert.equal(summary.operation, 'HAMP stop');
+  assert.equal(summary.total, 2);
+  assert.equal(summary.successCount, 2);
+  assert.equal(summary.failureCount, 0);
+  assert.equal(summary.ok, true);
+  assert.equal(summary.partial, false);
+  assert.deepEqual(summary.succeeded.map(result => result.deviceIndex), [0, 1]);
+  assert.deepEqual(summary.succeeded.map(result => result.value), [
+    { stopped: 'first' },
+    { stopped: 'second' },
+  ]);
+});
+
+test('partial broadcasts return successes and keep a transiently failed device actionable', async () => {
+  const manager = new HandyManager();
+  const stopped = manager.addDevice('stopped');
+  const stillMoving = manager.addDevice('still-moving');
+  stopped.connected = true;
+  stillMoving.connected = true;
+  stopped.hampReady = true;
+  stillMoving.hampReady = true;
+  stopped.hampStop = async () => ({ stopped: true });
+  stillMoving.hampStop = async () => {
+    throw Object.assign(new Error('Device timeout'), { connected: true });
+  };
+
+  const summary = await manager.hampStopAll();
+
+  assert.equal(summary.successCount, 1);
+  assert.equal(summary.failureCount, 1);
+  assert.equal(summary.ok, false);
+  assert.equal(summary.partial, true);
+  assert.equal(summary.succeeded[0].device, stopped);
+  assert.equal(summary.failed[0].device, stillMoving);
+  assert.equal(summary.failed[0].reason.message, 'Device timeout');
+  assert.equal(stillMoving.connected, true);
+  assert.equal(stillMoving.hampReady, true);
+});
+
+test('an all-failed broadcast rejects with its per-device summary', async () => {
+  const manager = new HandyManager();
+  const first = manager.addDevice('first');
+  const second = manager.addDevice('second');
+  first.hspReady = true;
+  second.hspReady = true;
+  first.hspStop = async () => { throw new Error('First failure'); };
+  second.hspStop = async () => { throw new Error('Second failure'); };
+
+  await assert.rejects(manager.hspStopAll(), (error) => {
+    assert.ok(error instanceof HandyBroadcastError);
+    assert.equal(error.kind, 'broadcast');
+    assert.equal(error.operation, 'HSP stop');
+    assert.equal(error.summary.total, 2);
+    assert.equal(error.summary.successCount, 0);
+    assert.equal(error.summary.failureCount, 2);
+    assert.deepEqual(
+      error.summary.failed.map(result => result.reason.message),
+      ['First failure', 'Second failure'],
+    );
+    return true;
+  });
 });

@@ -7,6 +7,7 @@ class ManualApp extends GroupApp {
     super();
     this.enabled = false;
     this.devices = []; // [{ index, name, ready }] received via IPC
+    this.playingDeviceIndices = new Set();
     this._focusedBound = 'max'; // 'min' | 'max' — which stroke slider keyboard length-keys adjust
 
     this.dom = {
@@ -237,6 +238,23 @@ class ManualApp extends GroupApp {
 
   _anyKnownDevices() { return this.devices.length > 0; }
 
+  _applyPlayingDeviceUpdate(msg) {
+    const indices = Array.isArray(msg.deviceIndices) ? msg.deviceIndices : [];
+    for (const index of indices) {
+      if (msg.playing) this.playingDeviceIndices.add(index);
+      else this.playingDeviceIndices.delete(index);
+    }
+    this._syncGroupPlayingState();
+  }
+
+  _syncGroupPlayingState() {
+    for (const groupId of this.groups.keys()) {
+      const playing = this.getGroupDeviceIndices(groupId)
+        .some(index => this.playingDeviceIndices.has(index));
+      this.groupPlaying.set(groupId, playing);
+    }
+  }
+
   canInteractOnCurrentGroup() {
     return this.enabled && super.canInteractOnCurrentGroup();
   }
@@ -316,6 +334,8 @@ class ManualApp extends GroupApp {
             this.clearActivePreset();
             this.devices = [];
             this.deviceGroup.clear();
+            this.playingDeviceIndices.clear();
+            this._syncGroupPlayingState();
             this.renderCards();
           }
           this.showPanelForMode(msg.mode);
@@ -327,15 +347,19 @@ class ManualApp extends GroupApp {
           break;
 
         case 'hamp-playing-devices':
-          this.groupPlaying.set(msg.tag, msg.playing);
+        case 'hsp-playing-devices':
+          this._applyPlayingDeviceUpdate(msg);
           this.renderCards();
-          if (this.activeGroupId === msg.tag) this.updateStatus();
+          this.updateStatus();
           break;
 
         case 'devices-updated': {
           const newIndices = new Set(msg.devices.map(d => d.index));
           for (const [idx] of this.deviceGroup) {
             if (!newIndices.has(idx)) this.deviceGroup.delete(idx);
+          }
+          for (const idx of this.playingDeviceIndices) {
+            if (!newIndices.has(idx)) this.playingDeviceIndices.delete(idx);
           }
           const firstGroupId = [...this.groups.keys()][0];
           for (const device of msg.devices) {
@@ -344,6 +368,7 @@ class ManualApp extends GroupApp {
             }
           }
           this.devices = msg.devices;
+          this._syncGroupPlayingState();
           this.renderCards();
           this.updateStatus();
           break;

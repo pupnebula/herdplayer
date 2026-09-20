@@ -108,6 +108,7 @@ class QueueApp {
     this.enabled      = false;
     this.devicesReady = false;
     this.playing      = false;
+    this.playingDeviceIndices = new Set();
     this.patterns     = {};    // filename → parsed JSON
     this.queue        = [];    // ordered list of filenames (remaining, not yet played)
     this.playbackRate = 1.0;
@@ -415,7 +416,12 @@ class QueueApp {
       switch (msg.type) {
         case 'mode-changed':
           this.enabled = msg.mode === 'queue';
-          if (!this.enabled) { this.playing = false; this.cancelDepletion(); this.looping = false; }
+          if (!this.enabled) {
+            this.playing = false;
+            this.playingDeviceIndices.clear();
+            this.cancelDepletion();
+            this.looping = false;
+          }
           if (this.enabled) this.scheduleRedraw();
           this.updateStatus();
           break;
@@ -424,8 +430,12 @@ class QueueApp {
           this.updateStatus();
           break;
         case 'hsp-playing':
-          this.playing = msg.playing;
-          if (!msg.playing) { this.cancelDepletion(); }
+          for (const index of msg.deviceIndices ?? []) {
+            if (msg.playing) this.playingDeviceIndices.add(index);
+            else this.playingDeviceIndices.delete(index);
+          }
+          this.playing = this.playingDeviceIndices.size > 0;
+          if (!this.playing) this.cancelDepletion();
           this.updateStatus();
           break;
         case 'sse-hsp_starving': {

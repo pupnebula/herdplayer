@@ -55,6 +55,20 @@ export class HandyNetworkError extends HandyRequestError {
   }
 }
 
+export class HandyBroadcastError extends HandyRequestError {
+  constructor(operation, summary) {
+    const message = summary.total === 0
+      ? `${operation} failed: no eligible devices`
+      : `${operation} failed on all ${summary.total} device(s)`;
+    super(message, {
+      kind: 'broadcast',
+      cause: summary.failed[0]?.reason ?? null,
+    });
+    this.operation = operation;
+    this.summary = summary;
+  }
+}
+
 export class HandyDevice {
   constructor(apiKey, connectionKey) {
     this.apiKey = apiKey;
@@ -398,18 +412,60 @@ export class HandyManager {
     return this.devices.some(d => d.hdspReady);
   }
 
+  async broadcast(operation, devices, command) {
+    const targets = [...devices];
+    const settled = await Promise.allSettled(
+      targets.map((device, index) => Promise.resolve().then(() => command(device, index)))
+    );
+    const results = settled.map((result, index) => {
+      const device = targets[index];
+      const base = {
+        device,
+        deviceIndex: this.devices.indexOf(device),
+        connectionKey: device?.connectionKey ?? null,
+        status: result.status,
+      };
+      if (result.status === 'fulfilled') return { ...base, value: result.value };
+      if (result.reason?.connected === false) device?.clearConnectionState();
+      return { ...base, reason: result.reason };
+    });
+    const succeeded = results.filter(result => result.status === 'fulfilled');
+    const failed = results.filter(result => result.status === 'rejected');
+    const summary = {
+      operation,
+      total: results.length,
+      successCount: succeeded.length,
+      failureCount: failed.length,
+      ok: results.length > 0 && failed.length === 0,
+      partial: succeeded.length > 0 && failed.length > 0,
+      succeeded,
+      failed,
+      results,
+    };
+    if (summary.successCount === 0) throw new HandyBroadcastError(operation, summary);
+    return summary;
+  }
+
   // Connect all devices in parallel. onDeviceStatus(index, status, ...extra) for per-device UI.
   async connectAll(onDeviceStatus) {
-    await Promise.allSettled(
-      this.devices.map(async (device, i) => {
+    return this.broadcast(
+      'Connect',
+      this.devices,
+      async (device, i) => {
         device.apiKey = this.apiKey;
+        let statusReported = false;
 
         try {
           if (onDeviceStatus) onDeviceStatus(i, 'connecting');
           const connected = await device.checkConnection();
           if (!connected) {
+            device.clearConnectionState();
             if (onDeviceStatus) onDeviceStatus(i, 'not_found');
-            return;
+            statusReported = true;
+            throw new HandyDeviceError('Device not connected', {
+              errorName: 'DeviceNotConnected',
+              connected: false,
+            });
           }
 
           if (onDeviceStatus) onDeviceStatus(i, 'syncing', 0, 30);
@@ -417,185 +473,201 @@ export class HandyManager {
             if (onDeviceStatus) onDeviceStatus(i, 'syncing', s, total);
           });
 
-          try { await device.getInfo(); } catch { /* ok */ }
+          try {
+            await device.getInfo();
+          } catch (err) {
+            // Device metadata is optional, but a response that explicitly
+            // disconnected the device must fail the connection attempt.
+            if (!device.connected) throw err;
+          }
 
           if (onDeviceStatus) onDeviceStatus(i, 'connected');
         } catch (err) {
-          if (onDeviceStatus) onDeviceStatus(i, 'error', err.message);
+          if (!statusReported && onDeviceStatus) onDeviceStatus(i, 'error', err.message);
+          throw err;
         }
-      })
+      }
     );
   }
 
   // Set up HSSP on all connected devices
   async setupHSSPAll(scriptUrl) {
     const devices = this.connectedDevices;
-    const results = await Promise.allSettled(
-      devices.map(async (device) => {
+    for (const device of devices) device.hsspReady = false;
+    return this.broadcast(
+      'HSSP setup',
+      devices,
+      async (device) => {
         await device.setMode(DeviceMode.HSSP);
         await device.hsspSetup(scriptUrl);
         device.hsspReady = true;
-      })
-    );
-
-    // Mark failed ones
-    for (let i = 0; i < devices.length; i++) {
-      if (results[i]?.status === 'rejected') devices[i].hsspReady = false;
-    }
-  }
-
-  async hsspPlayAll(startTimeMs, playbackRate = 1.0) {
-    await Promise.allSettled(
-      this.readyDevices.map(d => d.hsspPlay(startTimeMs + d.deviceOffset, playbackRate))
+      }
     );
   }
 
-  async hsspStopAll() {
-    await Promise.allSettled(
-      this.readyDevices.map(d => d.hsspStop())
+  async hsspPlayAll(startTimeMs, playbackRate = 1.0, devices = this.readyDevices) {
+    return this.broadcast(
+      'HSSP play',
+      devices,
+      d => d.hsspPlay(startTimeMs + d.deviceOffset, playbackRate)
     );
   }
 
-  async hsspPauseAll() {
-    await Promise.allSettled(
-      this.readyDevices.map(d => d.hsspPause())
+  async hsspStopAll(devices = this.readyDevices) {
+    return this.broadcast(
+      'HSSP stop',
+      devices,
+      d => d.hsspStop()
     );
   }
 
-  async hsspSyncTimeAll(currentTimeMs) {
-    await Promise.allSettled(
-      this.readyDevices.map(d => d.hsspSyncTime(currentTimeMs + d.deviceOffset))
+  async hsspPauseAll(devices = this.readyDevices) {
+    return this.broadcast(
+      'HSSP pause',
+      devices,
+      d => d.hsspPause()
+    );
+  }
+
+  async hsspSyncTimeAll(currentTimeMs, devices = this.readyDevices) {
+    return this.broadcast(
+      'HSSP sync',
+      devices,
+      d => d.hsspSyncTime(currentTimeMs + d.deviceOffset)
     );
   }
 
   // Set up HAMP on all connected devices
   async setupHAMPAll() {
     const devices = this.connectedDevices;
-    const results = await Promise.allSettled(
-      devices.map(async (device) => {
+    for (const device of devices) device.hampReady = false;
+    return this.broadcast(
+      'HAMP setup',
+      devices,
+      async (device) => {
         await device.setMode(DeviceMode.HAMP);
         device.hampReady = true;
-      })
-    );
-
-    for (let i = 0; i < devices.length; i++) {
-      if (results[i]?.status === 'rejected') devices[i].hampReady = false;
-    }
-  }
-
-  async hampStartAll() {
-    await Promise.allSettled(
-      this.hampReadyDevices.map(d => d.hampStart())
+      }
     );
   }
 
-  async hampStopAll() {
-    await Promise.allSettled(
-      this.hampReadyDevices.map(d => d.hampStop())
+  async hampStartAll(devices = this.hampReadyDevices) {
+    return this.broadcast(
+      'HAMP start',
+      devices,
+      d => d.hampStart()
     );
   }
 
-  async hampSetVelocityAll(velocity) {
-    await Promise.allSettled(
-      this.hampReadyDevices.map(d => d.hampSetVelocity(velocity))
+  async hampStopAll(devices = this.hampReadyDevices) {
+    return this.broadcast(
+      'HAMP stop',
+      devices,
+      d => d.hampStop()
     );
   }
 
-  async hampSetStrokeAll(min, max) {
-    await Promise.allSettled(
-      this.hampReadyDevices.map(d => d.hampSetStroke(min, max))
+  async hampSetVelocityAll(velocity, devices = this.hampReadyDevices) {
+    return this.broadcast(
+      'HAMP velocity update',
+      devices,
+      d => d.hampSetVelocity(velocity)
+    );
+  }
+
+  async hampSetStrokeAll(min, max, devices = this.hampReadyDevices) {
+    return this.broadcast(
+      'HAMP stroke update',
+      devices,
+      d => d.hampSetStroke(min, max)
     );
   }
 
   // Reset all HAMP devices to a known position via HDSP, then return to HAMP.
   async hampSyncAll() {
     const devices = this.hampReadyDevices;
-    if (devices.length === 0) return;
-
     const MOVE_MS = 3000;
-
-    // Stop HAMP motion
-    await Promise.allSettled(devices.map(d => d.hampStop()));
-
-    // Switch to HDSP and move to position 0 over MOVE_MS
-    await Promise.allSettled(
-      devices.map(d => d.setMode(DeviceMode.HDSP).then(() =>
-        d.hdspMoveToPercent(0, MOVE_MS)
-      ))
-    );
-
-    // Wait for all devices to finish the move
-    await new Promise(r => setTimeout(r, MOVE_MS + 500));
-
-    // Switch back to HAMP
-    await Promise.allSettled(
-      devices.map(d => d.setMode(DeviceMode.HAMP))
+    return this.broadcast(
+      'HAMP synchronize',
+      devices,
+      async d => {
+        await d.hampStop();
+        await d.setMode(DeviceMode.HDSP);
+        await d.hdspMoveToPercent(0, MOVE_MS);
+        await new Promise(resolve => setTimeout(resolve, MOVE_MS + 500));
+        await d.setMode(DeviceMode.HAMP);
+      }
     );
   }
 
   // Set up HSP on all connected devices
   async setupHSPAll() {
     const devices = this.connectedDevices;
-    const results = await Promise.allSettled(
-      devices.map(async (device) => {
+    for (const device of devices) device.hspReady = false;
+    return this.broadcast(
+      'HSP setup',
+      devices,
+      async (device) => {
         await device.setMode(DeviceMode.HSP);
         await device.hspSetup();
         device.hspReady = true;
-      })
-    );
-
-    for (let i = 0; i < devices.length; i++) {
-      if (results[i]?.status === 'rejected') devices[i].hspReady = false;
-    }
-  }
-
-  async hspAddPointsAll(points, flush = false, tailIndex = null) {
-    await Promise.allSettled(
-      this.hspReadyDevices.map(d => d.hspAddPoints(points, flush, tailIndex))
+      }
     );
   }
 
-  async hspPlayAll(loop = true, playbackRate = 1.0) {
-    const serverTime = this.hspReadyDevices[0]?.getEstimatedServerTime();
-    if (serverTime == null) return;
-    await Promise.allSettled(
-      this.hspReadyDevices.map(d => d.hspPlay(d.getEstimatedServerTime(), 0, loop, playbackRate))
+  async hspAddPointsAll(points, flush = false, tailIndex = null, devices = this.hspReadyDevices) {
+    return this.broadcast(
+      'HSP add points',
+      devices,
+      d => d.hspAddPoints(points, flush, tailIndex)
+    );
+  }
+
+  async hspPlayAll(loop = true, playbackRate = 1.0, devices = this.hspReadyDevices) {
+    return this.broadcast(
+      'HSP play',
+      devices,
+      d => d.hspPlay(d.getEstimatedServerTime(), 0, loop, playbackRate)
     );
   }
 
   // Combined add+play in one request — only use when points.length <= 100
-  async hspPlayAllWithAdd(points, flush, tailIndex, loop = true, playbackRate = 1.0) {
-    await Promise.allSettled(
-      this.hspReadyDevices.map(d =>
+  async hspPlayAllWithAdd(points, flush, tailIndex, loop = true, playbackRate = 1.0, devices = this.hspReadyDevices) {
+    return this.broadcast(
+      'HSP add and play',
+      devices,
+      d =>
         d.hspPlayWithAdd(d.getEstimatedServerTime(), points, flush, tailIndex, 0, loop, playbackRate)
-      )
     );
   }
 
-  async hspStopAll() {
-    await Promise.allSettled(
-      this.hspReadyDevices.map(d => d.hspStop())
+  async hspStopAll(devices = this.hspReadyDevices) {
+    return this.broadcast(
+      'HSP stop',
+      devices,
+      d => d.hspStop()
     );
   }
 
   // Set up HDSP on all connected devices
   async setupHDSPAll() {
     const devices = this.connectedDevices;
-    const results = await Promise.allSettled(
-      devices.map(async (device) => {
+    for (const device of devices) device.hdspReady = false;
+    return this.broadcast(
+      'HDSP setup',
+      devices,
+      async (device) => {
         await device.setMode(DeviceMode.HDSP);
         device.hdspReady = true;
-      })
+      }
     );
-
-    for (let i = 0; i < devices.length; i++) {
-      if (results[i]?.status === 'rejected') devices[i].hdspReady = false;
-    }
   }
 
-  async hdspMoveAllToPercent(position, durationMs) {
-    await Promise.allSettled(
-      this.hdspReadyDevices.map(d => d.hdspMoveToPercent(position, durationMs))
+  async hdspMoveAllToPercent(position, durationMs, devices = this.hdspReadyDevices) {
+    return this.broadcast(
+      'HDSP move',
+      devices,
+      d => d.hdspMoveToPercent(position, durationMs)
     );
   }
 
